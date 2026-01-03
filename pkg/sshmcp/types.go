@@ -118,6 +118,7 @@ type SSHShellSession struct {
 	Stderr       io.Reader
 	PTY          bool
 	TerminalInfo TerminalInfo
+	Config       *ShellConfig // Shell configuration
 	mu           sync.Mutex
 }
 
@@ -126,6 +127,77 @@ type TerminalInfo struct {
 	Term string // "xterm", "vt100", etc.
 	Rows uint16
 	Cols uint16
+}
+
+// TerminalMode represents the terminal mode
+type TerminalMode int
+
+const (
+	// TerminalModeCooked (canonical mode) - line buffering, processes special characters
+	TerminalModeCooked TerminalMode = iota
+	// TerminalModeRaw - pass through input/output without processing
+	TerminalModeRaw
+)
+
+func (m TerminalMode) String() string {
+	switch m {
+	case TerminalModeCooked:
+		return "cooked"
+	case TerminalModeRaw:
+		return "raw"
+	default:
+		return "unknown"
+	}
+}
+
+// ANSIMode determines how ANSI escape sequences are handled
+type ANSIMode int
+
+const (
+	// ANSIRaw - pass through ANSI sequences unchanged
+	ANSIRaw ANSIMode = iota
+	// ANSIStrip - remove ANSI sequences
+	ANSIStrip
+	// ANSIParse - parse and provide structured data (future)
+	ANSIParse
+)
+
+func (m ANSIMode) String() string {
+	switch m {
+	case ANSIRaw:
+		return "raw"
+	case ANSIStrip:
+		return "strip"
+	case ANSIParse:
+		return "parse"
+	default:
+		return "unknown"
+	}
+}
+
+// ShellConfig configures the shell session behavior
+type ShellConfig struct {
+	// Terminal mode (raw or cooked)
+	Mode TerminalMode
+	// ANSI escape sequence handling
+	ANSIMode ANSIMode
+	// Read timeout for non-blocking reads
+	ReadTimeout time.Duration
+	// Write timeout
+	WriteTimeout time.Duration
+	// Whether to auto-detect interactive programs
+	AutoDetectInteractive bool
+}
+
+// DefaultShellConfig returns default configuration
+func DefaultShellConfig() *ShellConfig {
+	return &ShellConfig{
+		Mode:                  TerminalModeCooked,
+		ANSIMode:              ANSIRaw,
+		ReadTimeout:           100 * time.Millisecond,
+		WriteTimeout:          5 * time.Second,
+		AutoDetectInteractive: true,
+	}
 }
 
 // CommandResult represents the result of a command execution
