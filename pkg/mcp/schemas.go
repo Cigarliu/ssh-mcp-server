@@ -45,6 +45,10 @@ func sshConnectSchema() map[string]any {
 			"type":        "string",
 			"description": "私钥密码（可选）",
 		},
+		"alias": map[string]any{
+			"type":        "string",
+			"description": "会话别名，简短易记的标识符，用于代替 session_id 引用会话。建议根据实际使用场景设置，比如：prod, staging, db, nginx, web。连接前请先调用 ssh_list_sessions() 查看已有别名，避免重复。如果发现冲突，请调整（如：prod → prod-2, web → web-01）。设置别名后，后续所有操作都可用 alias 代替 session_id。",
+		},
 	}, []string{"host", "username"})
 }
 
@@ -53,7 +57,7 @@ func sshDisconnectSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 	}, []string{"session_id"})
 }
@@ -68,7 +72,7 @@ func sshExecSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"command": map[string]any{
 			"type":        "string",
@@ -91,7 +95,7 @@ func sshExecBatchSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"commands": map[string]any{
 			"type":        "array",
@@ -118,7 +122,7 @@ func sshShellSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"terminal_type": map[string]any{
 			"type":        "string",
@@ -143,7 +147,7 @@ func sftpUploadSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"local_path": map[string]any{
 			"type":        "string",
@@ -171,7 +175,7 @@ func sftpDownloadSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"remote_path": map[string]any{
 			"type":        "string",
@@ -199,7 +203,7 @@ func sftpListDirSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"remote_path": map[string]any{
 			"type":        "string",
@@ -219,7 +223,7 @@ func sftpMkdirSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"remote_path": map[string]any{
 			"type":        "string",
@@ -243,7 +247,7 @@ func sftpDeleteSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"remote_path": map[string]any{
 			"type":        "string",
@@ -262,7 +266,7 @@ func sshWriteInputSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"input": map[string]any{
 			"type":        "string",
@@ -276,7 +280,7 @@ func sshReadOutputSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"timeout": map[string]any{
 			"type":        "integer",
@@ -291,7 +295,7 @@ func sshResizePtySchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
 			"type":        "string",
-			"description": "会话 ID",
+			"description": "会话 ID 或别名",
 		},
 		"rows": map[string]any{
 			"type":        "integer",

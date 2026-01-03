@@ -68,7 +68,7 @@ func NewSessionManager(config ManagerConfig) *SessionManager {
 }
 
 // CreateSession creates a new SSH session
-func (sm *SessionManager) CreateSession(host string, port int, username string, authConfig *AuthConfig) (*Session, error) {
+func (sm *SessionManager) CreateSession(host string, port int, username string, authConfig *AuthConfig, alias string) (*Session, error) {
 	// 检查是否超过最大会话数
 	if count := sm.CountSessions(); count >= sm.config.MaxSessions {
 		return nil, fmt.Errorf("maximum sessions limit reached: %d", sm.config.MaxSessions)
@@ -77,6 +77,16 @@ func (sm *SessionManager) CreateSession(host string, port int, username string, 
 	// 检查每个主机的最大会话数
 	if count := sm.CountSessionsForHost(host); count >= sm.config.MaxSessionsPerHost {
 		return nil, fmt.Errorf("maximum sessions per host limit reached: %d for host %s", sm.config.MaxSessionsPerHost, host)
+	}
+
+	// 检查别名是否已存在
+	if alias != "" && sm.AliasExists(alias) {
+		return nil, fmt.Errorf("alias '%s' already exists, please use a different alias", alias)
+	}
+
+	// 如果没有指定别名，自动生成一个
+	if alias == "" {
+		alias = sm.GenerateUniqueAlias("")
 	}
 
 	sessionID := uuid.New().String()
@@ -106,6 +116,7 @@ func (sm *SessionManager) CreateSession(host string, port int, username string, 
 
 	session := &Session{
 		ID:          sessionID,
+		Alias:       alias,
 		Host:        host,
 		Port:        port,
 		Username:    username,
@@ -123,6 +134,7 @@ func (sm *SessionManager) CreateSession(host string, port int, username string, 
 
 	sm.config.Logger.Info().
 		Str("session_id", sessionID).
+		Str("alias", alias).
 		Str("host", host).
 		Int("port", port).
 		Str("username", username).
@@ -313,4 +325,92 @@ func (sm *SessionManager) Close() {
 	})
 
 	sm.config.Logger.Info().Msg("Session manager closed")
+}
+
+// AliasExists checks if an alias already exists
+func (sm *SessionManager) AliasExists(alias string) bool {
+	if alias == "" {
+		return false
+	}
+
+	exists := false
+	sm.sessions.Range(func(key, value interface{}) bool {
+		session := value.(*Session)
+		session.mu.RLock()
+		defer session.mu.RUnlock()
+
+		if session.Alias == alias && session.State != SessionStateClosed {
+			exists = true
+			return false
+		}
+		return true
+	})
+
+	return exists
+}
+
+// GetSessionByAlias retrieves a session by alias
+func (sm *SessionManager) GetSessionByAlias(alias string) (*Session, error) {
+	if alias == "" {
+		return nil, fmt.Errorf("alias cannot be empty")
+	}
+
+	var result *Session
+	sm.sessions.Range(func(key, value interface{}) bool {
+		session := value.(*Session)
+		session.mu.RLock()
+		defer session.mu.RUnlock()
+
+		if session.Alias == alias && session.State != SessionStateClosed {
+			result = session
+			return false
+		}
+		return true
+	})
+
+	if result == nil {
+		return nil, fmt.Errorf("session not found with alias: %s", alias)
+	}
+
+	// 更新最后使用时间
+	result.mu.Lock()
+	result.LastUsedAt = time.Now()
+	result.mu.Unlock()
+
+	return result, nil
+}
+
+// GetSessionByIDOrAlias retrieves a session by ID or alias
+func (sm *SessionManager) GetSessionByIDOrAlias(idOrAlias string) (*Session, error) {
+	// 先尝试按 ID 查找
+	if session, err := sm.GetSession(idOrAlias); err == nil {
+		return session, nil
+	}
+
+	// 再尝试按 alias 查找
+	return sm.GetSessionByAlias(idOrAlias)
+}
+
+// GenerateUniqueAlias generates a unique short alias
+func (sm *SessionManager) GenerateUniqueAlias(base string) string {
+	// 如果没有提供基础别名，使用 "s" 作为前缀
+	if base == "" {
+		base = "s"
+	}
+
+	// 尝试直接使用 base
+	if !sm.AliasExists(base) {
+		return base
+	}
+
+	// 如果冲突，尝试 base-1, base-2, ...
+	for i := 1; i <= 1000; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !sm.AliasExists(candidate) {
+			return candidate
+		}
+	}
+
+	// 如果还是冲突（极端情况），使用 UUID 前缀
+	return fmt.Sprintf("s-%s", uuid.New().String()[:8])
 }

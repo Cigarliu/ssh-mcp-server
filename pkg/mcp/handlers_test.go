@@ -40,7 +40,7 @@ func createTestSession(t *testing.T, sm *sshmcp.SessionManager) *sshmcp.Session 
 	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
 	username := getEnvOrDefault("SSH_USER", "root")
 
-	session, err := sm.CreateSession(host, 22, username, authConfig)
+	session, err := sm.CreateSession(host, 22, username, authConfig, "")
 	if err != nil {
 		t.Skip("Skipping test: SSH connection not available")
 		return nil

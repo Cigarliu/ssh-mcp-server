@@ -44,7 +44,7 @@ func TestRealSSH_Connection(t *testing.T) {
 	t.Logf("连接到 %s@%s:%d", username, host, port)
 
 	// 创建 SSH 连接
-	session, err := sm.CreateSession(host, port, username, authConfig)
+	session, err := sm.CreateSession(host, port, username, authConfig, "")
 	if err != nil {
 		t.Fatalf("创建 SSH 连接失败: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestRealSSH_ExecuteCommand(t *testing.T) {
 	}
 
 	// 创建连接
-	session, err := sm.CreateSession(host, 22, username, authConfig)
+	session, err := sm.CreateSession(host, 22, username, authConfig, "")
 	require.NoError(t, err)
 	defer sm.RemoveSession(session.ID)
 
@@ -168,7 +168,7 @@ func TestRealSSH_SFTP(t *testing.T) {
 	}
 
 	// 创建连接
-	session, err := sm.CreateSession(host, 22, username, authConfig)
+	session, err := sm.CreateSession(host, 22, username, authConfig, "")
 	require.NoError(t, err)
 	defer sm.RemoveSession(session.ID)
 
@@ -256,7 +256,7 @@ func TestRealSSH_InteractiveShell(t *testing.T) {
 	}
 
 	// 创建连接
-	session, err := sm.CreateSession(host, 22, username, authConfig)
+	session, err := sm.CreateSession(host, 22, username, authConfig, "")
 	require.NoError(t, err)
 	defer sm.RemoveSession(session.ID)
 
@@ -332,7 +332,7 @@ func TestRealSSH_SessionList(t *testing.T) {
 	var sessionIDs []string
 
 	for i := 0; i < 3; i++ {
-		session, err := sm.CreateSession(host, 22, username, authConfig)
+		session, err := sm.CreateSession(host, 22, username, authConfig, "")
 		require.NoError(t, err)
 		sessionIDs = append(sessionIDs, session.ID)
 		t.Logf("   创建会话 %d: %s", i+1, session.ID)
