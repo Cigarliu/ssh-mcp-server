@@ -435,7 +435,7 @@ func TestSessionManager_AliasConflict(t *testing.T) {
 	// 尝试创建同名别名的会话，应该失败
 	_, err = sm.CreateSession(host, 22, username, authConfig, "conflict")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	assert.Contains(t, err.Error(), "already in use by an active session")
 }
 
 // TestSessionManager_AutoGenerateAlias tests automatic alias generation
