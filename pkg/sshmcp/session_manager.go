@@ -393,19 +393,14 @@ func (sm *SessionManager) GetSessionByIDOrAlias(idOrAlias string) (*Session, err
 
 // GenerateUniqueAlias generates a unique short alias
 func (sm *SessionManager) GenerateUniqueAlias(base string) string {
-	// 如果没有提供基础别名，使用 "s" 作为前缀
+	// 如果没有提供基础别名，使用 "s1" 作为起始
 	if base == "" {
 		base = "s"
 	}
 
-	// 尝试直接使用 base
-	if !sm.AliasExists(base) {
-		return base
-	}
-
-	// 如果冲突，尝试 base-1, base-2, ...
+	// 尝试 s1, s2, s3, ... 格式
 	for i := 1; i <= 1000; i++ {
-		candidate := fmt.Sprintf("%s-%d", base, i)
+		candidate := fmt.Sprintf("%s%d", base, i)
 		if !sm.AliasExists(candidate) {
 			return candidate
 		}
