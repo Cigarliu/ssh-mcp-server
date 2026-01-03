@@ -371,3 +371,224 @@ func getEnvOrDefault(key, defaultValue string) string {
 	}
 	return defaultValue
 }
+
+// TestRealSSH_AliasFeature 完整测试会话别名功能
+func TestRealSSH_AliasFeature(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+
+	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
+	username := getEnvOrDefault("SSH_USER", "root")
+	password := getEnvOrDefault("SSH_PASSWORD", "root")
+
+	logger := setupTestLogger(t)
+	config := ManagerConfig{
+		MaxSessions:        10,
+		MaxSessionsPerHost: 5,
+		SessionTimeout:     5 * time.Minute,
+		IdleTimeout:        2 * time.Minute,
+		CleanupInterval:    10 * time.Second,
+		Logger:             logger,
+	}
+
+	sm := NewSessionManager(config)
+	defer sm.Close()
+
+	authConfig := &AuthConfig{
+		Type:     AuthTypePassword,
+		Password: password,
+	}
+
+	t.Log("=== 会话别名功能测试 ===")
+
+	// 1. 创建带别名的会话
+	t.Log("1. 创建带别名的会话 'prod'")
+	prodSession, err := sm.CreateSession(host, 22, username, authConfig, "prod")
+	require.NoError(t, err)
+	defer sm.RemoveSession(prodSession.ID)
+
+	assert.Equal(t, "prod", prodSession.Alias, "会话别名应该是 'prod'")
+	t.Logf("   ✅ 创建成功: Session ID=%s, Alias=%s", prodSession.ID, prodSession.Alias)
+
+	// 2. 创建另一个带别名的会话
+	t.Log("2. 创建带别名的会话 'staging'")
+	stagingSession, err := sm.CreateSession(host, 22, username, authConfig, "staging")
+	require.NoError(t, err)
+	defer sm.RemoveSession(stagingSession.ID)
+
+	assert.Equal(t, "staging", stagingSession.Alias, "会话别名应该是 'staging'")
+	t.Logf("   ✅ 创建成功: Session ID=%s, Alias=%s", stagingSession.ID, stagingSession.Alias)
+
+	// 3. 测试别名冲突检测
+	t.Log("3. 测试别名冲突检测")
+	_, err = sm.CreateSession(host, 22, username, authConfig, "prod")
+	assert.Error(t, err, "创建同名别名应该失败")
+	assert.Contains(t, err.Error(), "already exists", "错误信息应该包含 'already exists'")
+	t.Logf("   ✅ 冲突检测正常: %v", err)
+
+	// 4. 测试通过别名获取会话
+	t.Log("4. 测试通过别名获取会话")
+	retrieved, err := sm.GetSessionByAlias("prod")
+	assert.NoError(t, err)
+	assert.Equal(t, prodSession.ID, retrieved.ID)
+	assert.Equal(t, "prod", retrieved.Alias)
+	t.Logf("   ✅ 通过别名 'prod' 成功获取会话")
+
+	// 5. 测试通过 ID 或别名获取会话
+	t.Log("5. 测试通过 ID 或别名获取会话")
+	byID, err := sm.GetSessionByIDOrAlias(prodSession.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, prodSession.ID, byID.ID)
+
+	byAlias, err := sm.GetSessionByIDOrAlias("staging")
+	assert.NoError(t, err)
+	assert.Equal(t, stagingSession.ID, byAlias.ID)
+	t.Logf("   ✅ GetSessionByIDOrAlias 工作正常")
+
+	// 6. 测试使用别名执行命令
+	t.Log("6. 测试使用别名执行命令")
+	result, err := retrieved.ExecuteCommand("echo 'hello from prod'", 10*time.Second)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+	assert.Contains(t, result.Stdout, "hello from prod")
+	t.Logf("   ✅ 使用别名执行命令成功: %s", result.Stdout)
+
+	// 7. 测试不存在的别名
+	t.Log("7. 测试不存在的别名")
+	_, err = sm.GetSessionByAlias("non-existent")
+	assert.Error(t, err)
+	t.Logf("   ✅ 不存在的别名正确返回错误")
+
+	// 8. 测试自动生成别名
+	t.Log("8. 测试自动生成别名")
+	autoSession, err := sm.CreateSession(host, 22, username, authConfig, "")
+	require.NoError(t, err)
+	defer sm.RemoveSession(autoSession.ID)
+
+	assert.NotEmpty(t, autoSession.Alias, "应该自动生成别名")
+	assert.Equal(t, "s1", autoSession.Alias, "第一个自动生成的别名应该是 's1'")
+	t.Logf("   ✅ 自动生成别名: %s", autoSession.Alias)
+
+	// 再创建一个，验证自动递增
+	autoSession2, err := sm.CreateSession(host, 22, username, authConfig, "")
+	require.NoError(t, err)
+	defer sm.RemoveSession(autoSession2.ID)
+
+	assert.Equal(t, "s2", autoSession2.Alias, "第二个自动生成的别名应该是 's2'")
+	t.Logf("   ✅ 自动递增别名: %s", autoSession2.Alias)
+
+	// 9. 测试列出会话时显示别名
+	t.Log("9. 测试列出会话时显示别名")
+	sessions := sm.ListSessions()
+	assert.GreaterOrEqual(t, len(sessions), 2, "至少应该有 2 个会话")
+
+	for _, s := range sessions {
+		if s.Alias != "" {
+			t.Logf("   会话 %s: 别名='%s', 主机=%s:%d", s.ID, s.Alias, s.Host, s.Port)
+		}
+	}
+
+	// 验证 prod 和 staging 会话都在列表中
+	foundProd := false
+	foundStaging := false
+	for _, s := range sessions {
+		if s.Alias == "prod" {
+			foundProd = true
+		}
+		if s.Alias == "staging" {
+			foundStaging = true
+		}
+	}
+	assert.True(t, foundProd, "应该找到别名为 'prod' 的会话")
+	assert.True(t, foundStaging, "应该找到别名为 'staging' 的会话")
+	t.Logf("   ✅ 会话列表正确显示别名")
+
+	t.Log("=== 会话别名功能测试全部通过 ===")
+}
+
+// TestRealSSH_AliasEndToEnd 端到端测试：模拟实际使用场景
+func TestRealSSH_AliasEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+
+	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
+	username := getEnvOrDefault("SSH_USER", "root")
+	password := getEnvOrDefault("SSH_PASSWORD", "root")
+
+	logger := setupTestLogger(t)
+	config := ManagerConfig{
+		MaxSessions:        10,
+		MaxSessionsPerHost: 5,
+		SessionTimeout:     5 * time.Minute,
+		IdleTimeout:        2 * time.Minute,
+		CleanupInterval:    10 * time.Second,
+		Logger:             logger,
+	}
+
+	sm := NewSessionManager(config)
+	defer sm.Close()
+
+	authConfig := &AuthConfig{
+		Type:     AuthTypePassword,
+		Password: password,
+	}
+
+	t.Log("=== 端到端场景测试 ===")
+
+	// 场景：用户需要管理三台服务器
+	t.Log("场景：用户连接到生产、测试和开发服务器")
+
+	// 1. 连接到生产服务器
+	t.Log("1. 连接到生产服务器 (192.168.68.212)，别名 'prod'")
+	prod, err := sm.CreateSession(host, 22, username, authConfig, "prod")
+	require.NoError(t, err)
+	defer sm.RemoveSession(prod.ID)
+	t.Logf("   ✅ 已连接: prod@%s", host)
+
+	// 2. 在生产服务器上执行命令
+	t.Log("2. 在生产服务器上执行命令检查磁盘空间")
+	prodSession, _ := sm.GetSessionByIDOrAlias("prod")
+	result, err := prodSession.ExecuteCommand("df -h | head -2", 10*time.Second)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, result.ExitCode)
+	t.Logf("   ✅ 磁盘使用情况:\n%s", result.Stdout)
+
+	// 3. 连接到测试服务器（实际上还是同一台，但用不同别名模拟）
+	t.Log("3. 连接到测试服务器，别名 'testing'")
+	testing, err := sm.CreateSession(host, 22, username, authConfig, "testing")
+	require.NoError(t, err)
+	defer sm.RemoveSession(testing.ID)
+	t.Logf("   ✅ 已连接: testing@%s", host)
+
+	// 4. 在测试服务器上执行命令（使用别名）
+	t.Log("4. 在测试服务器上执行命令（使用别名）")
+	testingSession, _ := sm.GetSessionByIDOrAlias("testing")
+	result, err = testingSession.ExecuteCommand("uname -a", 10*time.Second)
+	assert.NoError(t, err)
+	t.Logf("   ✅ 系统信息: %s", result.Stdout)
+
+	// 5. 列出所有活跃连接
+	t.Log("5. 列出所有活跃连接")
+	sessions := sm.ListSessions()
+	t.Logf("   当前活跃连接数: %d", len(sessions))
+	for _, s := range sessions {
+		t.Logf("   - %s: %s (%s@%s:%d)", s.Alias, s.ID[:8], s.Username, s.Host, s.Port)
+	}
+
+	// 6. 使用别名断开特定连接
+	t.Log("6. 断开测试服务器连接（使用别名）")
+	err = sm.RemoveSession(testing.ID)
+	assert.NoError(t, err)
+	t.Logf("   ✅ 已断开 'testing' 连接")
+
+	// 7. 验证 prod 连接仍然活跃
+	t.Log("7. 验证 prod 连接仍然活跃")
+	prodStillActive, err := sm.GetSessionByAlias("prod")
+	assert.NoError(t, err)
+	assert.Equal(t, prod.ID, prodStillActive.ID)
+	t.Logf("   ✅ 'prod' 连接仍然活跃")
+
+	t.Log("=== 端到端场景测试通过 ===")
+}
