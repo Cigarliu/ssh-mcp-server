@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cigar/sshmcp/internal/logger"
@@ -71,8 +73,23 @@ func LoadConfig(configPath string) (*Config, error) {
 	// 读取配置
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// 配置文件未找到，使用默认值
-			fmt.Println("Config file not found, using defaults")
+			// 配置文件未找到，生成默认配置
+			fmt.Fprintln(os.Stderr, "No configuration file found, generating default config...")
+
+			defaultConfigPath, err := generateDefaultConfig()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to generate default config: %v\n", err)
+				fmt.Fprintln(os.Stderr, "Using built-in defaults")
+			} else {
+				fmt.Fprintf(os.Stderr, "Generated default configuration at: %s\n", defaultConfigPath)
+				fmt.Fprintln(os.Stderr, "You can edit this file to customize the settings")
+
+				// 重新加载生成的配置
+				viper.SetConfigFile(defaultConfigPath)
+				if readErr := viper.ReadInConfig(); readErr != nil {
+					return nil, fmt.Errorf("read generated config: %w", readErr)
+				}
+			}
 		} else {
 			return nil, fmt.Errorf("read config: %w", err)
 		}
@@ -85,6 +102,60 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// generateDefaultConfig creates a default configuration file in the user's home directory
+func generateDefaultConfig() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home directory: %w", err)
+	}
+
+	configDir := filepath.Join(homeDir, ".sshmcp")
+	configFile := filepath.Join(configDir, "config.yaml")
+
+	// 创建配置目录
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("create config directory: %w", err)
+	}
+
+	// 默认配置内容
+	defaultConfig := `# SSH MCP Server Configuration
+# Generated automatically on first run
+
+server:
+  name: "ssh-mcp-server"
+  version: "1.0.0"
+
+ssh:
+  default_port: 22
+  timeout: 30s
+  keepalive_interval: 30s
+
+session:
+  max_sessions: 100
+  max_sessions_per_host: 10
+  idle_timeout: 10m
+  session_timeout: 30m
+  cleanup_interval: 1m
+
+sftp:
+  max_file_size: 1073741824  # 1GB in bytes
+  chunk_size: 4194304        # 4MB in bytes
+  transfer_timeout: 5m
+
+logging:
+  level: info  # debug, info, warn, error
+  format: console  # json, console
+  output: stdout
+`
+
+	// 写入配置文件
+	if err := os.WriteFile(configFile, []byte(defaultConfig), 0644); err != nil {
+		return "", fmt.Errorf("write config file: %w", err)
+	}
+
+	return configFile, nil
 }
 
 // setDefaults sets the default configuration values
