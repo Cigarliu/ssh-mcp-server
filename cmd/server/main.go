@@ -14,7 +14,7 @@ import (
 
 func main() {
 	// 加载配置（自动发现配置文件）
-	cfg, err := loadConfig()
+	cfg, configPath, err := loadConfigWithPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
@@ -46,8 +46,24 @@ func main() {
 	sessionManager := sshmcp.NewSessionManager(managerConfig)
 	defer sessionManager.Close()
 
+	// 转换配置中的 hosts 为 sshmcp.HostConfig
+	hostsConfig := make(map[string]sshmcp.HostConfig)
+	for name, hostCfg := range cfg.Hosts {
+		hostsConfig[name] = sshmcp.HostConfig{
+			Host:           hostCfg.Host,
+			Port:           hostCfg.Port,
+			Username:       hostCfg.Username,
+			Password:       hostCfg.Password,
+			PrivateKeyPath: hostCfg.PrivateKeyPath,
+			Description:    hostCfg.Description,
+		}
+	}
+
+	// 创建主机管理器
+	hostManager := sshmcp.NewHostManager(hostsConfig, configPath, logger)
+
 	// 创建 MCP 服务器
-	mcpServer, err := mcp.NewServer(sessionManager, logger)
+	mcpServer, err := mcp.NewServer(sessionManager, hostManager, logger)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create MCP server")
 	}

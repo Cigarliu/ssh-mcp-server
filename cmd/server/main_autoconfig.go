@@ -15,26 +15,37 @@ import (
 // 4. ~/.sshmcp.yaml (home directory)
 // 5. ~/.sshmcp/config.yaml (auto-generated if not exists)
 func loadConfig() (*config.Config, error) {
+	cfg, _, err := loadConfigWithPath()
+	return cfg, err
+}
+
+// loadConfigWithPath loads configuration and returns both config and config file path
+func loadConfigWithPath() (*config.Config, string, error) {
 	// Check for --config flag
 	args := os.Args
 	for i, arg := range args {
 		if arg == "-config" && i+1 < len(args) {
 			configPath := args[i+1]
 			fmt.Fprintf(os.Stderr, "Loading config from: %s\n", configPath)
-			return config.LoadConfig(configPath)
+			cfg, err := config.LoadConfig(configPath)
+			return cfg, configPath, err
 		}
 	}
 
 	// Check for .mcp.yaml in current directory
 	if _, err := os.Stat(".mcp.yaml"); err == nil {
-		fmt.Fprintf(os.Stderr, "Loading config from: .mcp.yaml (current directory)\n")
-		return config.LoadConfig(".mcp.yaml")
+		configPath := ".mcp.yaml"
+		fmt.Fprintf(os.Stderr, "Loading config from: %s (current directory)\n", configPath)
+		cfg, err := config.LoadConfig(configPath)
+		return cfg, configPath, err
 	}
 
 	// Check for .sshmcp.yaml in current directory
 	if _, err := os.Stat(".sshmcp.yaml"); err == nil {
-		fmt.Fprintf(os.Stderr, "Loading config from: .sshmcp.yaml (current directory)\n")
-		return config.LoadConfig(".sshmcp.yaml")
+		configPath := ".sshmcp.yaml"
+		fmt.Fprintf(os.Stderr, "Loading config from: %s (current directory)\n", configPath)
+		cfg, err := config.LoadConfig(configPath)
+		return cfg, configPath, err
 	}
 
 	// Check for ~/.sshmcp.yaml
@@ -43,13 +54,21 @@ func loadConfig() (*config.Config, error) {
 		homeConfig := filepath.Join(homeDir, ".sshmcp.yaml")
 		if _, err := os.Stat(homeConfig); err == nil {
 			fmt.Fprintf(os.Stderr, "Loading config from: %s (home directory)\n", homeConfig)
-			return config.LoadConfig(homeConfig)
+			cfg, err := config.LoadConfig(homeConfig)
+			return cfg, homeConfig, err
 		}
 	}
 
 	// No config found, let LoadConfig auto-generate default config
 	fmt.Fprintln(os.Stderr, "No configuration file found in standard locations")
-	return config.LoadConfig("")
+	cfg, err := config.LoadConfig("")
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Return the auto-generated config path
+	configPath := filepath.Join(homeDir, ".sshmcp", "config.yaml")
+	return cfg, configPath, nil
 }
 
 // getProjectRoot returns the current working directory

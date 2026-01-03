@@ -13,11 +13,12 @@ import (
 type Server struct {
 	mcpServer      *mcp.Server
 	sessionManager *sshmcp.SessionManager
+	hostManager    *sshmcp.HostManager
 	logger         *zerolog.Logger
 }
 
 // NewServer creates a new MCP server
-func NewServer(sessionManager *sshmcp.SessionManager, logger *zerolog.Logger) (*Server, error) {
+func NewServer(sessionManager *sshmcp.SessionManager, hostManager *sshmcp.HostManager, logger *zerolog.Logger) (*Server, error) {
 	// 创建 MCP 服务器 - 使用正确的 API
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "ssh-mcp-server",
@@ -27,6 +28,7 @@ func NewServer(sessionManager *sshmcp.SessionManager, logger *zerolog.Logger) (*
 	s := &Server{
 		mcpServer:      mcpServer,
 		sessionManager: sessionManager,
+		hostManager:    hostManager,
 		logger:         logger,
 	}
 
@@ -125,6 +127,25 @@ func (s *Server) registerTools() {
 		Description: "调整终端窗口大小",
 		InputSchema: sshResizePtySchema(),
 	}, s.handleSSHResizePty)
+
+	// 主机管理工具
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "ssh_list_hosts",
+		Description: "列出所有预定义的主机配置",
+		InputSchema: sshListHostsSchema(),
+	}, s.handleSSHListHosts)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "ssh_save_host",
+		Description: "保存主机配置以便后续快速连接",
+		InputSchema: sshSaveHostSchema(),
+	}, s.handleSSHSaveHost)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "ssh_remove_host",
+		Description: "删除已保存的主机配置",
+		InputSchema: sshRemoveHostSchema(),
+	}, s.handleSSHRemoveHost)
 }
 
 // Start starts the MCP server
