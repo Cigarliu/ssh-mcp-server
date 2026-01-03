@@ -1,0 +1,27 @@
+# SSH MCP Server Configuration
+
+server:
+  name: "ssh-mcp-server"
+  version: "1.0.0"
+
+ssh:
+  default_port: 22
+  timeout: 30s
+  keepalive_interval: 30s
+
+session:
+  max_sessions: 100
+  max_sessions_per_host: 10
+  idle_timeout: 10m
+  session_timeout: 30m
+  cleanup_interval: 1m
+
+sftp:
+  max_file_size: 1073741824
+  chunk_size: 4194304
+  transfer_timeout: 5m
+
+logging:
+  level: info  # debug, info, warn, error
+  format: console  # json, console
+  output: stdout  # stdout, stderr, or file path
