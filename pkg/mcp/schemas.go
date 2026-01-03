@@ -14,32 +14,36 @@ func getCommonJSONSchema(properties map[string]any, required []string) map[strin
 // sshConnectSchema returns the input schema for ssh_connect
 func sshConnectSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
+		"hostname": map[string]any{
+			"type":        "string",
+			"description": "预定义主机名称（配置文件中 hosts 下定义的名称），比如：prod, staging。如果使用此参数，会自动从配置文件读取 host、port、username、password 等信息，无需重复输入。与 host 参数二选一。连接前请先调用 ssh_list_hosts() 查看可用的预定义主机。",
+		},
 		"host": map[string]any{
 			"type":        "string",
-			"description": "SSH 服务器地址",
+			"description": "SSH 服务器地址（与 hostname 二选一）",
 		},
 		"port": map[string]any{
 			"type":        "integer",
-			"description": "SSH 端口，默认 22",
+			"description": "SSH 端口，默认 22（使用 hostname 时会从配置读取）",
 			"default":     22,
 		},
 		"username": map[string]any{
 			"type":        "string",
-			"description": "SSH 用户名",
+			"description": "SSH 用户名（使用 hostname 时会从配置读取）",
 		},
 		"auth_type": map[string]any{
 			"type":        "string",
-			"description": "认证类型: password, private_key, ssh_agent",
+			"description": "认证类型: password, private_key, ssh_agent（使用 hostname 时会从配置读取）",
 			"enum":        []string{"password", "private_key", "ssh_agent"},
 			"default":     "password",
 		},
 		"password": map[string]any{
 			"type":        "string",
-			"description": "密码（auth_type=password 时需要）",
+			"description": "密码（auth_type=password 时需要，使用 hostname 时会从配置读取）",
 		},
 		"private_key": map[string]any{
 			"type":        "string",
-			"description": "私钥文件路径（auth_type=private_key 时需要）",
+			"description": "私钥文件路径（auth_type=private_key 时需要，使用 hostname 时会从配置读取）",
 		},
 		"passphrase": map[string]any{
 			"type":        "string",
@@ -49,7 +53,7 @@ func sshConnectSchema() map[string]any {
 			"type":        "string",
 			"description": "会话别名，简短易记的标识符，用于代替 session_id 引用会话。建议根据实际使用场景设置，比如：prod, staging, db, nginx, web。连接前请先调用 ssh_list_sessions() 查看已有别名，避免重复。如果发现冲突，请调整（如：prod → prod-2, web → web-01）。设置别名后，后续所有操作都可用 alias 代替 session_id。",
 		},
-	}, []string{"host", "username"})
+	}, []string{})
 }
 
 // sshDisconnectSchema returns the input schema for ssh_disconnect
@@ -306,4 +310,54 @@ func sshResizePtySchema() map[string]any {
 			"description": "终端列数",
 		},
 	}, []string{"session_id", "rows", "cols"})
+}
+
+// sshListHostsSchema returns the input schema for ssh_list_hosts
+func sshListHostsSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{}, []string{})
+}
+
+// sshSaveHostSchema returns the input schema for ssh_save_host
+func sshSaveHostSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"name": map[string]any{
+			"type":        "string",
+			"description": "主机名称，用于标识这个主机配置，比如：prod, staging, db-server, web-server。请先调用 ssh_list_hosts() 查看已有名称，避免重复。如果发现冲突，请调整（如：prod → prod-2）。保存后，可直接使用此名称连接，无需重复输入账号密码。",
+		},
+		"host": map[string]any{
+			"type":        "string",
+			"description": "SSH 服务器地址（IP 或域名）",
+		},
+		"port": map[string]any{
+			"type":        "integer",
+			"description": "SSH 端口，默认 22",
+			"default":     22,
+		},
+		"username": map[string]any{
+			"type":        "string",
+			"description": "SSH 用户名",
+		},
+		"password": map[string]any{
+			"type":        "string",
+			"description": "密码（与 private_key 二选一）",
+		},
+		"private_key_path": map[string]any{
+			"type":        "string",
+			"description": "私钥文件路径（与 password 二选一）",
+		},
+		"description": map[string]any{
+			"type":        "string",
+			"description": "主机描述（可选）",
+		},
+	}, []string{"name", "host", "username"})
+}
+
+// sshRemoveHostSchema returns the input schema for ssh_remove_host
+func sshRemoveHostSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"name": map[string]any{
+			"type":        "string",
+			"description": "要删除的主机名称",
+		},
+	}, []string{"name"})
 }

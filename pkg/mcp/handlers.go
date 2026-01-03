@@ -14,6 +14,7 @@ import (
 
 // handleSSHConnect handles the ssh_connect tool
 func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	hostname, _ := args["hostname"].(string)
 	host, _ := args["host"].(string)
 	username, _ := args["username"].(string)
 	authType, _ := args["auth_type"].(string)
@@ -22,6 +23,59 @@ func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest,
 	passphrase, _ := args["passphrase"].(string)
 	portVal, _ := args["port"].(float64)
 	alias, _ := args["alias"].(string)
+
+	// If hostname is provided, load from predefined hosts
+	if hostname != "" {
+		if s.hostManager == nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Host manager is not available"}},
+				IsError: true,
+			}, nil, nil
+		}
+
+		hostConfig, err := s.hostManager.GetHost(hostname)
+		if err != nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Host '%s' not found: %v\nUse ssh_list_hosts to see available hosts", hostname, err)}},
+				IsError: true,
+			}, nil, nil
+		}
+
+		// Use values from host config if not explicitly provided
+		if host == "" {
+			host = hostConfig.Host
+		}
+		if username == "" {
+			username = hostConfig.Username
+		}
+		if portVal == 0 && hostConfig.Port > 0 {
+			portVal = float64(hostConfig.Port)
+		}
+		if password == "" && hostConfig.Password != "" {
+			password = hostConfig.Password
+			authType = "password"
+		}
+		if privateKey == "" && hostConfig.PrivateKeyPath != "" {
+			privateKey = hostConfig.PrivateKeyPath
+			authType = "private_key"
+		}
+	}
+
+	// Validate required parameters
+	if host == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Host address is required (provide either 'host' or 'hostname')"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	if username == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Username is required"}},
+			IsError: true,
+		}, nil, nil
+	}
+
 	port := int(portVal)
 	if port == 0 {
 		port = 22
@@ -527,5 +581,145 @@ func (s *Server) handleSSHResizePty(ctx context.Context, req *mcp.CallToolReques
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Terminal resized to %dx%d for session %s", rows, cols, sessionID)}},
+	}, nil, nil
+}
+
+// handleSSHListHosts handles the ssh_list_hosts tool
+func (s *Server) handleSSHListHosts(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	if s.hostManager == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Host manager is not available"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	hosts := s.hostManager.ListHosts()
+
+	if len(hosts) == 0 {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "No predefined hosts configured.\nYou can save hosts using ssh_save_host."}},
+		}, nil, nil
+	}
+
+	output := fmt.Sprintf("Predefined hosts (%d):\n\n", len(hosts))
+	for name, host := range hosts {
+		output += fmt.Sprintf("- %s:\n", name)
+		output += fmt.Sprintf("  Host: %s:%d\n", host.Host, host.Port)
+		output += fmt.Sprintf("  Username: %s\n", host.Username)
+		if host.Description != "" {
+			output += fmt.Sprintf("  Description: %s\n", host.Description)
+		}
+		if host.Password != "" {
+			output += "  Auth: password\n"
+		} else if host.PrivateKeyPath != "" {
+			output += fmt.Sprintf("  Auth: private_key (%s)\n", host.PrivateKeyPath)
+		}
+		output += "\n"
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: output}},
+	}, nil, nil
+}
+
+// handleSSHSaveHost handles the ssh_save_host tool
+func (s *Server) handleSSHSaveHost(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	if s.hostManager == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Host manager is not available"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	name, _ := args["name"].(string)
+	host, _ := args["host"].(string)
+	username, _ := args["username"].(string)
+	portVal, _ := args["port"].(float64)
+	password, _ := args["password"].(string)
+	privateKeyPath, _ := args["private_key_path"].(string)
+	description, _ := args["description"].(string)
+
+	if name == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Host name is required"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	if host == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Host address is required"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	if username == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Username is required"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	// Check if host already exists
+	if s.hostManager.HostExists(name) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Host '%s' already exists. Please use a different name or remove the existing host first.", name)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	port := int(portVal)
+	if port == 0 {
+		port = 22
+	}
+
+	hostConfig := sshmcp.HostConfig{
+		Host:            host,
+		Port:            port,
+		Username:        username,
+		Password:        password,
+		PrivateKeyPath:  privateKeyPath,
+		Description:     description,
+	}
+
+	if err := s.hostManager.SaveHost(name, hostConfig); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to save host: %v", err)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Host '%s' saved successfully.\nYou can now connect using: hostname=%s", name, name)}},
+	}, nil, nil
+}
+
+// handleSSHRemoveHost handles the ssh_remove_host tool
+func (s *Server) handleSSHRemoveHost(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	if s.hostManager == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Host manager is not available"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	name, _ := args["name"].(string)
+
+	if name == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Host name is required"}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	if err := s.hostManager.RemoveHost(name); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to remove host: %v", err)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Host '%s' removed successfully", name)}},
 	}, nil, nil
 }

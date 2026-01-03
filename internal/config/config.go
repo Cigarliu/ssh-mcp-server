@@ -17,6 +17,7 @@ type Config struct {
 	SSH     SSHConfig     `mapstructure:"ssh"`
 	Session SessionConfig `mapstructure:"session"`
 	SFTP    SFTPConfig    `mapstructure:"sftp"`
+	Hosts   HostsConfig   `mapstructure:"hosts"`
 	Logging logger.Config `mapstructure:"logging"`
 }
 
@@ -48,6 +49,19 @@ type SFTPConfig struct {
 	ChunkSize       int64         `mapstructure:"chunk_size"`
 	TransferTimeout time.Duration `mapstructure:"transfer_timeout"`
 }
+
+// HostConfig represents a predefined SSH host configuration
+type HostConfig struct {
+	Host            string `mapstructure:"host"`
+	Port            int    `mapstructure:"port"`
+	Username        string `mapstructure:"username"`
+	Password        string `mapstructure:"password,omitempty"`
+	PrivateKeyPath  string `mapstructure:"private_key_path,omitempty"`
+	Description     string `mapstructure:"description,omitempty"`
+}
+
+// HostsConfig represents the predefined hosts configuration
+type HostsConfig map[string]HostConfig
 
 // LoadConfig loads the configuration from file and environment variables
 func LoadConfig(configPath string) (*Config, error) {
@@ -143,6 +157,17 @@ sftp:
   max_file_size: 1073741824  # 1GB in bytes
   chunk_size: 4194304        # 4MB in bytes
   transfer_timeout: 5m
+
+# Predefined hosts for quick connection
+# You can reference these hosts by name when connecting
+hosts:
+  # Example:
+  # prod:
+  #   host: "192.168.1.100"
+  #   port: 22
+  #   username: "root"
+  #   password: "your-password"
+  #   description: "Production server"
 
 logging:
   level: info  # debug, info, warn, error

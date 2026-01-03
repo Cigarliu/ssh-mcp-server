@@ -21,6 +21,27 @@ sftp:
   chunk_size: 4194304
   transfer_timeout: 5m
 
+# Predefined hosts for quick connection
+# You can reference these hosts by name when connecting using ssh_connect
+# Example: ssh_connect(hostname="prod") instead of specifying host, port, username, etc.
+hosts:
+  prod:
+    host: "192.168.1.100"
+    port: 22
+    username: "root"
+    password: "your-password"
+    description: "Production server"
+
+  staging:
+    host: "staging.example.com"
+    port: 22
+    username: "deploy"
+    private_key_path: "~/.ssh/id_rsa"
+    description: "Staging environment"
+
+  # You can also use ssh_save_host to save hosts dynamically
+  # Example: ssh_save_host(name="dev", host="dev.local", username="dev", password="secret")
+
 logging:
   level: info  # debug, info, warn, error
   format: console  # json, console
