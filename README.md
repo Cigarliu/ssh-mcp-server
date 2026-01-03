@@ -36,6 +36,10 @@ claude mcp list | grep ssh
 
 ## Configuration
 
+### First Run
+
+On first run, if no configuration file is found, SSH MCP Server will automatically generate a default configuration file at `~/.sshmcp/config.yaml`. You can edit this file to customize the settings.
+
 ### Configuration Discovery
 
 SSH MCP Server searches for configuration files in the following order:
