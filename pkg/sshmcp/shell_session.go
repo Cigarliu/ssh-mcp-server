@@ -4,13 +4,53 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
-// CreateShell creates an interactive shell session
+// Common interactive programs that require raw mode
+var interactivePrograms = []string{
+	"vim", "vi", "nano", "emacs",
+	"gdb", "lldb",
+	"top", "htop", "iotop",
+	"python", "python3", "node", "irb",
+	"mysql", "psql", "mongosh",
+	"tmux", "screen",
+	"less", "more", "most",
+}
+
+// IsInteractiveProgram detects if a command is an interactive program
+func IsInteractiveProgram(cmd string) bool {
+	cmdLower := strings.ToLower(cmd)
+	for _, prog := range interactivePrograms {
+		if strings.Contains(cmdLower, prog) {
+			return true
+		}
+	}
+	return false
+}
+
+// ANSI escape sequence pattern (basic pattern for stripping)
+var ansiEscapePattern = strings.NewReplacer(
+	"\x1b[", "",  // CSI sequences
+	"\x1b]", "",  // OSC sequences
+	"\x1b(", "",  // Select character set
+	"\x1b)", "",
+	"\x1b=", "",  // Application keypad mode
+	"\x1b>", "",
+)
+
+// CreateShell creates an interactive shell session with default config
 func (s *Session) CreateShell(term string, rows, cols uint16) (*SSHShellSession, error) {
+	return s.CreateShellWithConfig(term, rows, cols, DefaultShellConfig())
+}
+
+// CreateShellWithConfig creates an interactive shell session with custom configuration
+func (s *Session) CreateShellWithConfig(term string, rows, cols uint16, config *ShellConfig) (*SSHShellSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -24,12 +64,31 @@ func (s *Session) CreateShell(term string, rows, cols uint16) (*SSHShellSession,
 		term = "xterm-256color"
 	}
 
+	// 根据配置设置终端模式
+	var termModes ssh.TerminalModes
+	if config.Mode == TerminalModeRaw {
+		// Raw mode: minimal processing
+		termModes = ssh.TerminalModes{
+			ssh.ECHO:          0, // 禁用回显
+			ssh.TTY_OP_ISPEED: 14400,
+			ssh.TTY_OP_OSPEED: 14400,
+			ssh.VINTR:         0, // 禁用中断字符
+			ssh.VQUIT:         0, // 禁用退出字符
+			ssh.VERASE:        0, // 禁用擦除字符
+			ssh.VKILL:         0, // 禁用杀死字符
+			ssh.VEOF:           0, // 禁用 EOF 字符
+		}
+	} else {
+		// Cooked mode: normal processing
+		termModes = ssh.TerminalModes{
+			ssh.ECHO:          1, // 启用回显
+			ssh.TTY_OP_ISPEED: 14400,
+			ssh.TTY_OP_OSPEED: 14400,
+		}
+	}
+
 	// 请求 PTY
-	if err := session.RequestPty(term, int(rows), int(cols), ssh.TerminalModes{
-		ssh.ECHO:          1,     // 启用回显
-		ssh.TTY_OP_ISPEED: 14400, // 输入速度 = 14.4kbaud
-		ssh.TTY_OP_OSPEED: 14400, // 输出速度 = 14.4kbaud
-	}); err != nil {
+	if err := session.RequestPty(term, int(rows), int(cols), termModes); err != nil {
 		session.Close()
 		return nil, fmt.Errorf("request PTY: %w", err)
 	}
@@ -65,6 +124,7 @@ func (s *Session) CreateShell(term string, rows, cols uint16) (*SSHShellSession,
 		Stdout:  stdout,
 		Stderr:  stderr,
 		PTY:     true,
+		Config:  config,
 		TerminalInfo: TerminalInfo{
 			Term: term,
 			Rows: rows,
@@ -194,4 +254,217 @@ func (ss *SSHShellSession) IsAlive() bool {
 	// 发送 keepalive 信号
 	_, err := ss.Session.SendRequest("keepalive", true, nil)
 	return err == nil
+}
+
+// ReadOutputNonBlocking reads output with non-blocking I/O
+// This is the NEW method that solves the EOF blocking issue
+func (ss *SSHShellSession) ReadOutputNonBlocking(timeout time.Duration) (string, string, error) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.Stdout == nil || ss.Stderr == nil {
+		return "", "", fmt.Errorf("stdout/stderr is not available")
+	}
+
+	// 使用实际配置的 timeout 或传入的 timeout
+	readTimeout := timeout
+	if readTimeout <= 0 && ss.Config != nil {
+		readTimeout = ss.Config.ReadTimeout
+	}
+	if readTimeout <= 0 {
+		readTimeout = 100 * time.Millisecond
+	}
+
+	// 创建缓冲区
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var wg sync.WaitGroup
+	var stdoutErr, stderrErr error
+
+	// 读取 stdout with timeout
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+
+		// 尝试设置读取超时（如果 stdout 支持）
+		if stdoutFile, ok := ss.Stdout.(interface{ SetReadDeadline(time.Time) error }); ok {
+			stdoutFile.SetReadDeadline(time.Now().Add(readTimeout))
+		}
+
+		n, err := ss.Stdout.Read(buf)
+		if err != nil && err != io.EOF {
+			if os.IsTimeout(err) || err.Error() == "deadline exceeded" {
+				// 超时不是错误，返回已读取的部分
+				stdoutBuf.Write(buf[:n])
+				return
+			}
+			stdoutErr = err
+			return
+		}
+		stdoutBuf.Write(buf[:n])
+	}()
+
+	// 读取 stderr with timeout
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+
+		// 尝试设置读取超时
+		if stderrFile, ok := ss.Stderr.(interface{ SetReadDeadline(time.Time) error }); ok {
+			stderrFile.SetReadDeadline(time.Now().Add(readTimeout))
+		}
+
+		n, err := ss.Stderr.Read(buf)
+		if err != nil && err != io.EOF {
+			if os.IsTimeout(err) || err.Error() == "deadline exceeded" {
+				// 超时不是错误，返回已读取的部分
+				stderrBuf.Write(buf[:n])
+				return
+			}
+			stderrErr = err
+			return
+		}
+		stderrBuf.Write(buf[:n])
+	}()
+
+	// 等待读取完成或超时
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// 读取完成
+	case <-time.After(readTimeout + 10*time.Millisecond):
+		// 超时，返回已读取的部分
+	}
+
+	stdoutStr := stdoutBuf.String()
+	stderrStr := stderrBuf.String()
+
+	// 根据 ANSIMode 处理输出
+	if ss.Config != nil {
+		switch ss.Config.ANSIMode {
+		case ANSIStrip:
+			stdoutStr = stripANSI(stdoutStr)
+			stderrStr = stripANSI(stderrStr)
+		}
+	}
+
+	if stdoutErr != nil || stderrErr != nil {
+		return stdoutStr, stderrStr, fmt.Errorf("stdout: %v, stderr: %v", stdoutErr, stderrErr)
+	}
+
+	return stdoutStr, stderrStr, nil
+}
+
+// stripANSI removes ANSI escape sequences from string
+func stripANSI(s string) string {
+	// 使用字节级别的处理，更安全可靠
+	var result []byte
+	input := []byte(s)
+	i := 0
+
+	for i < len(input) {
+		// 检查是否是 ANSI 转义序列的开始 (ESC + '[')
+		if input[i] == 0x1B && i+1 < len(input) && input[i+1] == '[' {
+			// 跳过转义序列，直到找到终止字符
+			i += 2 // 跳过 ESC + '['
+			// 跳过序列中的所有字符，直到找到终止符
+			for i < len(input) {
+				// 常见的 ANSI 终止符：A-Z, a-z, @, ~
+				c := input[i]
+				if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '@' {
+					i++ // 跳过终止符
+					break
+				}
+				i++
+			}
+		} else if input[i] == 0x1B && i+1 < len(input) && (input[i+1] == ']' || input[i+1] == '(' || input[i+1] == ')') {
+			// 处理其他类型的转义序列（OSC, 字符集选择等）
+			i += 2
+			for i < len(input) {
+				if input[i] == 0x07 || input[i] == 0x1B || (input[i] >= 'A' && input[i] <= 'Z') {
+					i++
+					break
+				}
+				i++
+			}
+		} else {
+			// 普通字符，添加到结果
+			result = append(result, input[i])
+			i++
+		}
+	}
+
+	return string(result)
+}
+
+// WriteSpecialChars writes special control characters to the shell
+func (ss *SSHShellSession) WriteSpecialChars(char string) error {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.Stdin == nil {
+		return fmt.Errorf("stdin is not available")
+	}
+
+	var input []byte
+	switch strings.ToLower(char) {
+	case "ctrl+c", "sigint":
+		input = []byte{0x03} // ASCII ETX (End of Text)
+	case "ctrl+d", "eof":
+		input = []byte{0x04} // ASCII EOT (End of Transmission)
+	case "ctrl+z", "sigtstp":
+		input = []byte{0x1A} // ASCII SUB (Substitute)
+	case "ctrl+l", "clear":
+		input = []byte{0x0C} // ASCII FF (Form Feed)
+	case "enter", "return":
+		input = []byte{0x0D} // ASCII CR (Carriage Return)
+	case "tab":
+		input = []byte{0x09} // ASCII HT (Horizontal Tab)
+	case "esc":
+		input = []byte{0x1B} // ASCII ESC (Escape)
+	case "up":
+		input = []byte{0x1B, 0x5B, 0x41} // ESC [ A
+	case "down":
+		input = []byte{0x1B, 0x5B, 0x42} // ESC [ B
+	case "right":
+		input = []byte{0x1B, 0x5B, 0x43} // ESC [ C
+	case "left":
+		input = []byte{0x1B, 0x5B, 0x44} // ESC [ D
+	default:
+		return fmt.Errorf("unsupported special character: %s", char)
+	}
+
+	_, err := ss.Stdin.Write(input)
+	return err
+}
+
+// SetMode dynamically changes the terminal mode
+func (ss *SSHShellSession) SetMode(mode TerminalMode) error {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.Config == nil {
+		return fmt.Errorf("shell config is not set")
+	}
+
+	ss.Config.Mode = mode
+
+	// Note: 在 SSH 中无法动态更改已建立的 PTY 模式
+	// 这只是更新配置，实际的模式更改需要在创建 shell 时设置
+	// 如果需要动态更改，需要重新创建 shell session
+	return fmt.Errorf("cannot change mode dynamically for SSH PTY, please recreate shell with new mode")
+}
+
+// GetConfig returns the current shell configuration
+func (ss *SSHShellSession) GetConfig() *ShellConfig {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	return ss.Config
 }
