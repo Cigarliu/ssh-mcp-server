@@ -24,11 +24,14 @@ func TestNewServer(t *testing.T) {
 
 	defer sessionManager.Close()
 
-	server, err := NewServer(sessionManager, logger)
+	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+
+	server, err := NewServer(sessionManager, hostManager, logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, server)
 	assert.NotNil(t, server.mcpServer)
 	assert.NotNil(t, server.sessionManager)
+	assert.NotNil(t, server.hostManager)
 	assert.NotNil(t, server.logger)
 }
 
@@ -45,7 +48,9 @@ func TestServer_RegisterTools(t *testing.T) {
 
 	defer sessionManager.Close()
 
-	server, err := NewServer(sessionManager, logger)
+	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+
+	server, err := NewServer(sessionManager, hostManager, logger)
 	require.NoError(t, err)
 	require.NotNil(t, server)
 
@@ -66,7 +71,9 @@ func TestServer_Start(t *testing.T) {
 
 	defer sessionManager.Close()
 
-	server, err := NewServer(sessionManager, logger)
+	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+
+	server, err := NewServer(sessionManager, hostManager, logger)
 	require.NoError(t, err)
 	require.NotNil(t, server)
 
@@ -112,7 +119,9 @@ func TestHandleSSHConnect(t *testing.T) {
 
 	defer sessionManager.Close()
 
-	server, err := NewServer(sessionManager, logger)
+	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+
+	server, err := NewServer(sessionManager, hostManager, logger)
 	require.NoError(t, err)
 
 	// 测试无效的连接
@@ -143,7 +152,9 @@ func TestHandleSSHDisconnect(t *testing.T) {
 
 	defer sessionManager.Close()
 
-	server, err := NewServer(sessionManager, logger)
+	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+
+	server, err := NewServer(sessionManager, hostManager, logger)
 	require.NoError(t, err)
 
 	// 测试删除不存在的会话
@@ -170,7 +181,9 @@ func TestHandleSSHListSessions(t *testing.T) {
 
 	defer sessionManager.Close()
 
-	server, err := NewServer(sessionManager, logger)
+	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+
+	server, err := NewServer(sessionManager, hostManager, logger)
 	require.NoError(t, err)
 
 	// 列出空的会话列表

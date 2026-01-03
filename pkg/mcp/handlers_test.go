@@ -23,7 +23,9 @@ func setupTestServer(t *testing.T) (*Server, *sshmcp.SessionManager) {
 		Logger:             logger,
 	})
 
-	server, err := NewServer(sessionManager, logger)
+	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+
+	server, err := NewServer(sessionManager, hostManager, logger)
 	require.NoError(t, err)
 	require.NotNil(t, server)
 
