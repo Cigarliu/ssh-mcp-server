@@ -13,7 +13,7 @@ import (
 // 2. .mcp.yaml in current directory
 // 3. .sshmcp.yaml in current directory
 // 4. ~/.sshmcp.yaml (home directory)
-// 5. /home/cigar/tools/sshmcp/config.yaml (default)
+// 5. ~/.sshmcp/config.yaml (auto-generated if not exists)
 func loadConfig() (*config.Config, error) {
 	// Check for --config flag
 	args := os.Args
@@ -47,10 +47,9 @@ func loadConfig() (*config.Config, error) {
 		}
 	}
 
-	// Use default config
-	defaultConfig := "/home/cigar/tools/sshmcp/config.yaml"
-	fmt.Fprintf(os.Stderr, "Loading config from: %s (default)\n", defaultConfig)
-	return config.LoadConfig(defaultConfig)
+	// No config found, let LoadConfig auto-generate default config
+	fmt.Fprintln(os.Stderr, "No configuration file found in standard locations")
+	return config.LoadConfig("")
 }
 
 // getProjectRoot returns the current working directory
