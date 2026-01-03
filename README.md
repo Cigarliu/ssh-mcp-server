@@ -132,7 +132,7 @@ logging:
 |------|-------------|
 | `ssh_exec` | Execute single command |
 | `ssh_exec_batch` | Execute multiple commands sequentially |
-| `ssh_shell` | Start interactive shell session |
+| `ssh_shell` | Start interactive shell with configurable terminal mode (raw/cooked), ANSI processing, and timeout settings |
 
 ### File Transfer
 
@@ -148,8 +148,8 @@ logging:
 
 | Tool | Description |
 |------|-------------|
-| `ssh_write_input` | Write input to interactive session |
-| `ssh_read_output` | Read output from interactive session |
+| `ssh_write_input` | Write input or send special characters (Ctrl+C, arrow keys, etc.) to interactive session |
+| `ssh_read_output` | Read output from interactive session with optional non-blocking mode for real-time AI interaction |
 | `ssh_resize_pty` | Adjust terminal window size |
 
 ## Usage Examples
@@ -373,6 +373,20 @@ MIT License
 ## Changelog
 
 ### [Unreleased]
+
+**Added - MCP Tool Description Updates (2025-01-04)**
+
+- ✨ **Enhanced Tool Schemas**: Updated `ssh_shell` with mode, ansi_mode, and read_timeout parameters
+- ✨ **Special Character Support**: Updated `ssh_write_input` with special_char parameter for control keys
+- ✨ **Non-blocking Read**: Updated `ssh_read_output` with non_blocking parameter for AI-friendly polling
+- 📝 **Documentation**: Updated README tool descriptions to reflect new interactive capabilities
+- ✅ **AI-Optimized Descriptions**: All tool descriptions now clearly explain interactive terminal features
+
+**Benefits:**
+- AI assistants can now discover and use interactive terminal features through tool descriptions
+- Clear guidance on when to use Raw vs Cooked modes
+- Non-blocking mode prominently featured for real-time AI interaction
+- Special character input documented for full interactive program control
 
 **Added - Interactive Terminal Support (2025-01-03)**
 
