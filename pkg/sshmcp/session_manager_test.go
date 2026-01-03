@@ -501,3 +501,218 @@ func TestSession_AliasField(t *testing.T) {
 	assert.Equal(t, "test-alias", session.Alias)
 }
 
+// TestSessionManager_ReconnectWithSameAlias tests reconnecting with the same alias
+func TestSessionManager_ReconnectWithSameAlias(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过需要真实 SSH 连接的测试")
+	}
+
+	logger := setupTestLogger(t)
+	config := ManagerConfig{
+		MaxSessions:        10,
+		MaxSessionsPerHost: 5,
+		SessionTimeout:     5 * time.Minute,
+		IdleTimeout:        2 * time.Minute,
+		CleanupInterval:    10 * time.Second,
+		Logger:             logger,
+	}
+
+	sm := NewSessionManager(config)
+	defer sm.Close()
+
+	authConfig := &AuthConfig{
+		Type:     AuthTypePassword,
+		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+	}
+
+	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
+	username := getEnvOrDefault("SSH_USER", "root")
+
+	// 创建第一个会话，别名为 "rk3562"
+	session1, err := sm.CreateSession(host, 22, username, authConfig, "rk3562")
+	if err != nil {
+		t.Skipf("Skipping test: SSH connection failed: %v", err)
+		return
+	}
+
+	// 验证会话创建成功
+	assert.NotNil(t, session1)
+	assert.Equal(t, "rk3562", session1.Alias)
+	firstSessionID := session1.ID
+
+	// 尝试用相同的别名创建第二个会话（会话仍然活跃），应该失败
+	_, err = sm.CreateSession(host, 22, username, authConfig, "rk3562")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "already in use by an active session")
+
+	// 手动关闭第一个会话（模拟断开连接）
+	err = sm.RemoveSession(session1.ID)
+	assert.NoError(t, err)
+
+	// 现在用相同的别名重新连接，应该成功
+	session2, err := sm.CreateSession(host, 22, username, authConfig, "rk3562")
+	assert.NoError(t, err)
+	assert.NotNil(t, session2)
+	assert.Equal(t, "rk3562", session2.Alias)
+	assert.NotEqual(t, firstSessionID, session2.ID, "New session should have different ID")
+
+	// 清理
+	sm.RemoveSession(session2.ID)
+}
+
+// TestSessionManager_ReconnectUnhealthySession tests reconnecting when session is unhealthy
+func TestSessionManager_ReconnectUnhealthySession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过需要真实 SSH 连接的测试")
+	}
+
+	logger := setupTestLogger(t)
+	config := ManagerConfig{
+		MaxSessions:        10,
+		MaxSessionsPerHost: 5,
+		SessionTimeout:     5 * time.Minute,
+		IdleTimeout:        2 * time.Minute,
+		CleanupInterval:    10 * time.Second,
+		Logger:             logger,
+	}
+
+	sm := NewSessionManager(config)
+	defer sm.Close()
+
+	authConfig := &AuthConfig{
+		Type:     AuthTypePassword,
+		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+	}
+
+	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
+	username := getEnvOrDefault("SSH_USER", "root")
+
+	// 创建第一个会话
+	session1, err := sm.CreateSession(host, 22, username, authConfig, "unhealthy-test")
+	if err != nil {
+		t.Skipf("Skipping test: SSH connection failed: %v", err)
+		return
+	}
+
+	// 验证会话健康
+	isHealthy := sm.IsSessionHealthy(session1)
+	assert.True(t, isHealthy, "New session should be healthy")
+
+	// 手动关闭 SSH 客户端（模拟连接断开）
+	if session1.SSHClient != nil {
+		session1.SSHClient.Close()
+	}
+
+	// 现在会话应该不健康
+	isHealthy = sm.IsSessionHealthy(session1)
+	assert.False(t, isHealthy, "Session should be unhealthy after closing SSH client")
+
+	// 尝试用相同的别名重新连接，应该自动清理旧会话并创建新会话
+	session2, err := sm.CreateSession(host, 22, username, authConfig, "unhealthy-test")
+	assert.NoError(t, err, "Should be able to reconnect with same alias when session is unhealthy")
+	assert.NotNil(t, session2)
+	assert.Equal(t, "unhealthy-test", session2.Alias)
+
+	// 验证新会话健康
+	isHealthy = sm.IsSessionHealthy(session2)
+	assert.True(t, isHealthy, "New session should be healthy")
+
+	// 清理
+	sm.RemoveSession(session2.ID)
+}
+
+// TestSessionManager_IsSessionHealthy tests session health check
+func TestSessionManager_IsSessionHealthy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过需要真实 SSH 连接的测试")
+	}
+
+	logger := setupTestLogger(t)
+	config := ManagerConfig{
+		MaxSessions:        10,
+		MaxSessionsPerHost: 5,
+		SessionTimeout:     5 * time.Minute,
+		IdleTimeout:        2 * time.Minute,
+		CleanupInterval:    10 * time.Second,
+		Logger:             logger,
+	}
+
+	sm := NewSessionManager(config)
+	defer sm.Close()
+
+	authConfig := &AuthConfig{
+		Type:     AuthTypePassword,
+		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+	}
+
+	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
+	username := getEnvOrDefault("SSH_USER", "root")
+
+	// 创建会话
+	session, err := sm.CreateSession(host, 22, username, authConfig, "health-check")
+	if err != nil {
+		t.Skipf("Skipping test: SSH connection failed: %v", err)
+		return
+	}
+	defer sm.RemoveSession(session.ID)
+
+	// 健康的会话
+	isHealthy := sm.IsSessionHealthy(session)
+	assert.True(t, isHealthy, "Active session should be healthy")
+
+	// 测试已关闭的会话
+	session.mu.Lock()
+	session.State = SessionStateClosed
+	session.mu.Unlock()
+
+	isHealthy = sm.IsSessionHealthy(session)
+	assert.False(t, isHealthy, "Closed session should not be healthy")
+}
+
+// TestSessionManager_GetSessionByAliasWithHealthCheck tests getting session with health check
+func TestSessionManager_GetSessionByAliasWithHealthCheck(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过需要真实 SSH 连接的测试")
+	}
+
+	logger := setupTestLogger(t)
+	config := ManagerConfig{
+		MaxSessions:        10,
+		MaxSessionsPerHost: 5,
+		SessionTimeout:     5 * time.Minute,
+		IdleTimeout:        2 * time.Minute,
+		CleanupInterval:    10 * time.Second,
+		Logger:             logger,
+	}
+
+	sm := NewSessionManager(config)
+	defer sm.Close()
+
+	authConfig := &AuthConfig{
+		Type:     AuthTypePassword,
+		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+	}
+
+	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
+	username := getEnvOrDefault("SSH_USER", "root")
+
+	// 创建会话
+	session, err := sm.CreateSession(host, 22, username, authConfig, "health-alias")
+	if err != nil {
+		t.Skipf("Skipping test: SSH connection failed: %v", err)
+		return
+	}
+	defer sm.RemoveSession(session.ID)
+
+	// 获取会话并检查健康状态
+	retrieved, isHealthy, err := sm.GetSessionByAliasWithHealthCheck("health-alias")
+	assert.NoError(t, err)
+	assert.NotNil(t, retrieved)
+	assert.True(t, isHealthy, "Session should be healthy")
+	assert.Equal(t, session.ID, retrieved.ID)
+
+	// 测试不存在的别名
+	_, _, err = sm.GetSessionByAliasWithHealthCheck("non-existent")
+	assert.Error(t, err)
+}
+
