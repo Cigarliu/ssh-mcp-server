@@ -79,9 +79,31 @@ func (sm *SessionManager) CreateSession(host string, port int, username string, 
 		return nil, fmt.Errorf("maximum sessions per host limit reached: %d for host %s", sm.config.MaxSessionsPerHost, host)
 	}
 
-	// 检查别名是否已存在
+	// 检查别名是否已存在，并进行健康检查
 	if alias != "" && sm.AliasExists(alias) {
-		return nil, fmt.Errorf("alias '%s' already exists, please use a different alias", alias)
+		existingSession, isHealthy, err := sm.GetSessionByAliasWithHealthCheck(alias)
+		if err == nil {
+			if isHealthy {
+				// 会话仍然活跃，返回友好提示
+				return nil, fmt.Errorf("alias '%s' is already in use by an active session (ID: %s, Host: %s:%d). Please use a different alias or disconnect the existing session first",
+					alias, existingSession.ID, existingSession.Host, existingSession.Port)
+			} else {
+				// 会话已断开，自动清理
+				sm.config.Logger.Info().
+					Str("session_id", existingSession.ID).
+					Str("alias", alias).
+					Str("host", existingSession.Host).
+					Msg("Detected unhealthy session with same alias, cleaning up for reconnection")
+
+				// 清理旧会话
+				if err := sm.RemoveSession(existingSession.ID); err != nil {
+					sm.config.Logger.Warn().
+						Str("session_id", existingSession.ID).
+						Err(err).
+						Msg("Failed to remove unhealthy session, continuing anyway")
+				}
+			}
+		}
 	}
 
 	// 如果没有指定别名，自动生成一个
@@ -408,4 +430,64 @@ func (sm *SessionManager) GenerateUniqueAlias(base string) string {
 
 	// 如果还是冲突（极端情况），使用 UUID 前缀
 	return fmt.Sprintf("s-%s", uuid.New().String()[:8])
+}
+
+// IsSessionHealthy checks if a session is still healthy (connected and responsive)
+func (sm *SessionManager) IsSessionHealthy(session *Session) bool {
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+
+	// 检查会话状态
+	if session.State == SessionStateClosed {
+		return false
+	}
+
+	// 检查 SSH 客户端是否存在
+	if session.SSHClient == nil {
+		return false
+	}
+
+	// 尝试创建一个新的 session 来测试连接
+	// 这是一个轻量级的健康检查
+	testSession, err := session.SSHClient.NewSession()
+	if err != nil {
+		sm.config.Logger.Debug().
+			Str("session_id", session.ID).
+			Str("alias", session.Alias).
+			Err(err).
+			Msg("Session health check failed: cannot create new session")
+		return false
+	}
+	testSession.Close()
+
+	return true
+}
+
+// GetSessionByAliasWithHealthCheck retrieves a session by alias and checks its health
+func (sm *SessionManager) GetSessionByAliasWithHealthCheck(alias string) (*Session, bool, error) {
+	if alias == "" {
+		return nil, false, fmt.Errorf("alias cannot be empty")
+	}
+
+	var result *Session
+	sm.sessions.Range(func(key, value interface{}) bool {
+		session := value.(*Session)
+		session.mu.RLock()
+		defer session.mu.RUnlock()
+
+		if session.Alias == alias && session.State != SessionStateClosed {
+			result = session
+			return false
+		}
+		return true
+	})
+
+	if result == nil {
+		return nil, false, fmt.Errorf("session not found with alias: %s", alias)
+	}
+
+	// 检查会话健康状态
+	isHealthy := sm.IsSessionHealthy(result)
+
+	return result, isHealthy, nil
 }
