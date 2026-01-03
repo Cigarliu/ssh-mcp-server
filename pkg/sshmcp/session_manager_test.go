@@ -31,7 +31,7 @@ func TestSessionManager_CreateSession(t *testing.T) {
 	}
 
 	// 使用无效的私钥，应该会失败
-	session, err := sm.CreateSession("localhost", 22, "testuser", authConfig)
+	session, err := sm.CreateSession("localhost", 22, "testuser", authConfig, "")
 	assert.Error(t, err, "Expected error with invalid private key")
 	assert.Nil(t, session)
 }

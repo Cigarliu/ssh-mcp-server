@@ -21,6 +21,7 @@ func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest,
 	privateKey, _ := args["private_key"].(string)
 	passphrase, _ := args["passphrase"].(string)
 	portVal, _ := args["port"].(float64)
+	alias, _ := args["alias"].(string)
 	port := int(portVal)
 	if port == 0 {
 		port = 22
@@ -54,7 +55,7 @@ func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil, nil
 	}
 
-	session, err := s.sessionManager.CreateSession(host, port, username, authConfig)
+	session, err := s.sessionManager.CreateSession(host, port, username, authConfig, alias)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to create session: %v", err)}},
@@ -63,8 +64,8 @@ func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Successfully connected to %s@%s:%d\nSession ID: %s",
-			username, host, port, session.ID)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Successfully connected to %s@%s:%d\nSession ID: %s\nAlias: %s",
+			username, host, port, session.ID, session.Alias)}},
 	}, nil, nil
 }
 
@@ -93,6 +94,9 @@ func (s *Server) handleSSHListSessions(ctx context.Context, req *mcp.CallToolReq
 	for _, session := range sessions {
 		session.RLock()
 		output += fmt.Sprintf("- Session ID: %s\n", session.ID)
+		if session.Alias != "" {
+			output += fmt.Sprintf("  Alias: %s\n", session.Alias)
+		}
 		output += fmt.Sprintf("  Host: %s:%d\n", session.Host, session.Port)
 		output += fmt.Sprintf("  Username: %s\n", session.Username)
 		output += fmt.Sprintf("  State: %s\n", session.State)
@@ -113,7 +117,7 @@ func (s *Server) handleSSHExec(ctx context.Context, req *mcp.CallToolRequest, ar
 	timeoutVal, _ := args["timeout"].(float64)
 	workingDir, _ := args["working_dir"].(string)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -166,7 +170,7 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 		commands[i], _ = cmd.(string)
 	}
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -214,7 +218,7 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	rowsVal, _ := args["rows"].(float64)
 	colsVal, _ := args["cols"].(float64)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -252,7 +256,7 @@ func (s *Server) handleSFTPUpload(ctx context.Context, req *mcp.CallToolRequest,
 	createDirsVal, _ := args["create_dirs"].(bool)
 	overwriteVal, _ := args["overwrite"].(bool)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -282,7 +286,7 @@ func (s *Server) handleSFTPDownload(ctx context.Context, req *mcp.CallToolReques
 	createDirsVal, _ := args["create_dirs"].(bool)
 	overwriteVal, _ := args["overwrite"].(bool)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -310,7 +314,7 @@ func (s *Server) handleSFTPListDir(ctx context.Context, req *mcp.CallToolRequest
 	remotePath, _ := args["remote_path"].(string)
 	recursiveVal, _ := args["recursive"].(bool)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -345,7 +349,7 @@ func (s *Server) handleSFTPMkdir(ctx context.Context, req *mcp.CallToolRequest, 
 	recursiveVal, _ := args["recursive"].(bool)
 	modeVal, _ := args["mode"].(float64)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -377,7 +381,7 @@ func (s *Server) handleSFTPDelete(ctx context.Context, req *mcp.CallToolRequest,
 	remotePath, _ := args["remote_path"].(string)
 	recursiveVal, _ := args["recursive"].(bool)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -403,7 +407,7 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 	sessionID, _ := args["session_id"].(string)
 	input, _ := args["input"].(string)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -440,7 +444,7 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 	sessionID, _ := args["session_id"].(string)
 	timeoutVal, _ := args["timeout"].(float64)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
@@ -491,7 +495,7 @@ func (s *Server) handleSSHResizePty(ctx context.Context, req *mcp.CallToolReques
 	rowsVal, _ := args["rows"].(float64)
 	colsVal, _ := args["cols"].(float64)
 
-	session, err := s.sessionManager.GetSession(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},

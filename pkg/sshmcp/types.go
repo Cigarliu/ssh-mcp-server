@@ -53,6 +53,7 @@ type AuthConfig struct {
 type Session struct {
 	// 基本信息
 	ID       string       `json:"session_id"`
+	Alias    string       `json:"alias,omitempty"` // 会话别名，简短易记的标识符
 	Host     string       `json:"host"`
 	Port     int          `json:"port"`
 	Username string       `json:"username"`
