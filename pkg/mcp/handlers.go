@@ -271,6 +271,9 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	term, _ := args["terminal_type"].(string)
 	rowsVal, _ := args["rows"].(float64)
 	colsVal, _ := args["cols"].(float64)
+	mode, _ := args["mode"].(string)
+	ansiMode, _ := args["ansi_mode"].(string)
+	readTimeoutVal, _ := args["read_timeout"].(float64)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -289,7 +292,33 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 		cols = 80
 	}
 
-	_, err = session.CreateShell(term, rows, cols)
+	// 创建 Shell 配置
+	config := sshmcp.DefaultShellConfig()
+	
+	// 设置终端模式
+	if mode == "raw" {
+		config.Mode = sshmcp.TerminalModeRaw
+	} else {
+		config.Mode = sshmcp.TerminalModeCooked
+	}
+	
+	// 设置 ANSI 处理模式
+	switch ansiMode {
+	case "strip":
+		config.ANSIMode = sshmcp.ANSIStrip
+	case "parse":
+		config.ANSIMode = sshmcp.ANSIParse
+	default:
+		config.ANSIMode = sshmcp.ANSIRaw
+	}
+	
+	// 设置读取超时
+	if readTimeoutVal > 0 {
+		config.ReadTimeout = time.Duration(readTimeoutVal) * time.Millisecond
+	}
+	
+	// 使用配置创建 Shell
+	_, err = session.CreateShellWithConfig(term, rows, cols, config)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to create shell: %v", err)}},
@@ -460,6 +489,7 @@ func (s *Server) handleSFTPDelete(ctx context.Context, req *mcp.CallToolRequest,
 func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	sessionID, _ := args["session_id"].(string)
 	input, _ := args["input"].(string)
+	specialChar, _ := args["special_char"].(string)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -480,6 +510,21 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 		}, nil, nil
 	}
 
+	// Use special character if provided
+	if specialChar != "" {
+		err = session.ShellSession.WriteSpecialChars(specialChar)
+		if err != nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Write special character failed: %v", err)}},
+				IsError: true,
+			}, nil, nil
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Special character '%s' sent to shell session %s", specialChar, sessionID)}},
+		}, nil, nil
+	}
+
+	// Otherwise write regular input
 	err = session.ShellSession.WriteInput(input)
 	if err != nil {
 		return &mcp.CallToolResult{
@@ -494,9 +539,11 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 }
 
 // handleSSHReadOutput handles the ssh_read_output tool
+// handleSSHReadOutput handles the ssh_read_output tool
 func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	sessionID, _ := args["session_id"].(string)
 	timeoutVal, _ := args["timeout"].(float64)
+	nonBlocking, _ := args["non_blocking"].(bool)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -517,12 +564,23 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 		}, nil, nil
 	}
 
-	timeout := 5 * time.Second
-	if timeoutVal > 0 {
-		timeout = time.Duration(timeoutVal) * time.Second
+	var stdout, stderr string
+	if nonBlocking {
+		// Non-blocking mode: use milliseconds timeout
+		readTimeout := 100 * time.Millisecond
+		if timeoutVal > 0 {
+			readTimeout = time.Duration(timeoutVal) * time.Millisecond
+		}
+		stdout, stderr, err = session.ShellSession.ReadOutputNonBlocking(readTimeout)
+	} else {
+		// Blocking mode: use seconds timeout
+		timeout := 5 * time.Second
+		if timeoutVal > 0 {
+			timeout = time.Duration(timeoutVal) * time.Second
+		}
+		stdout, stderr, err = session.ShellSession.ReadOutput(timeout)
 	}
 
-	stdout, stderr, err := session.ShellSession.ReadOutput(timeout)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Read output failed: %v", err)}},

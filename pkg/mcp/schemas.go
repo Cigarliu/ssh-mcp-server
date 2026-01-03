@@ -143,6 +143,23 @@ func sshShellSchema() map[string]any {
 			"description": "终端列数，默认 80",
 			"default":     80,
 		},
+		"mode": map[string]any{
+			"type":        "string",
+			"description": "终端模式：cooked（逐行缓冲，适合简单命令如 ls/cat/echo）或 raw（逐字符处理，适合交互式程序如 vim/top/gdb/htop）。默认 cooked",
+			"enum":        []string{"cooked", "raw"},
+			"default":     "cooked",
+		},
+		"ansi_mode": map[string]any{
+			"type":        "string",
+			"description": "ANSI 处理模式：raw（保留所有控制码，默认）、strip（移除 ANSI 序列，输出纯文本，AI 友好）、parse（结构化解析，未来功能）",
+			"enum":        []string{"raw", "strip", "parse"},
+			"default":     "raw",
+		},
+		"read_timeout": map[string]any{
+			"type":        "integer",
+			"description": "读取超时时间（毫秒），默认 100ms。非阻塞模式下建议使用较短的超时以快速响应",
+			"default":     100,
+		},
 	}, []string{"session_id"})
 }
 
@@ -274,9 +291,14 @@ func sshWriteInputSchema() map[string]any {
 		},
 		"input": map[string]any{
 			"type":        "string",
-			"description": "要写入的输入内容",
+			"description": "要写入的输入内容（命令或文本）。如果要发送特殊控制字符，使用 special_char 参数",
 		},
-	}, []string{"session_id", "input"})
+		"special_char": map[string]any{
+			"type":        "string",
+			"description": "特殊控制字符：ctrl+c（中断）、ctrl+d（EOF）、ctrl+z（挂起）、ctrl+l（清屏）、enter（回车）、tab（制表符）、esc（退出）、up/down/left/right（方向键）。使用特殊字符时不要同时提供 input 参数",
+			"enum":        []string{"ctrl+c", "sigint", "ctrl+d", "eof", "ctrl+z", "sigtstp", "ctrl+l", "clear", "enter", "return", "tab", "esc", "up", "down", "left", "right"},
+		},
+	}, []string{"session_id"})
 }
 
 // sshReadOutputSchema returns the input schema for ssh_read_output
@@ -288,8 +310,13 @@ func sshReadOutputSchema() map[string]any {
 		},
 		"timeout": map[string]any{
 			"type":        "integer",
-			"description": "超时时间（秒），默认 1",
+			"description": "超时时间（秒），默认 1。对于交互式程序建议使用非阻塞读取（non_blocking=true）并设置较短的超时（如 100ms）",
 			"default":     1,
+		},
+		"non_blocking": map[string]any{
+			"type":        "boolean",
+			"description": "是否使用非阻塞读取模式。默认 false。启用后会在超时前返回已读取的数据，不会因等待 EOF 而阻塞。强烈推荐用于交互式程序（top、vim、gdb 等）",
+			"default":     false,
 		},
 	}, []string{"session_id"})
 }
