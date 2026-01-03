@@ -1,0 +1,69 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+*.test
+*.out
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude MCP specific
+.claude/
+*.mcp.json
+
+# Temporary files
+*.tmp
+*.log
+
+# Build artifacts
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+
+# SSH keys (security)
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Config files with sensitive data
+config.local.yaml
+*.local.yaml
+
+# Test artifacts
+test-results/
+
+# Coverage files
+coverage*.out
+
+# Ace-tool index
+.ace-tool/
+
+# Config example (use config.example.yaml as template)
+config.yaml
