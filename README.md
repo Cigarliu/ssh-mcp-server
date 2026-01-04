@@ -112,7 +112,7 @@ go build -o bin/sshmcp ./cmd/server
 
 ### 🎯 独家功能
 
-#### 1. **完整的交互式终端** - 业界唯一
+#### 1. **完整的交互式终端** - 
 其他 SSH MCP 库只能执行一次性命令，无法运行交互式程序（如 vim、top、htop、gdb）。
 
 SSH MCP Server 提供真正的 PTY（伪终端）支持：
