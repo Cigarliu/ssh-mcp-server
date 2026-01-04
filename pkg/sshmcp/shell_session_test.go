@@ -102,6 +102,26 @@ func TestStripANSI(t *testing.T) {
 			input:    "",
 			expected: "",
 		},
+		{
+			name:     "htop output style",
+			input:    "\x1b[?1049h\x1b[22;0;0t\x1b[1;40r\x1b(B\x1b[m\x1b[4l\x1b[?7h\x1b[?1h\x1b=\x1b[?25l\x1b[39;49m\x1b[?1006;1000h\x1b[39;49m\x1b(B\x1b[m\x1b[H\x1b[2J\x1b[2d  \x1b[36m  0\x1b[39m\x1b(B\x1b[0;1m[\x1b[90m\x1b[46X\x1b[2;53H0.0%\x1b[39m]\x1b(B\x1b[m   \x1b[36mTasks: \x1b(B\x1b[0;1m\x1b[36m126\x1b(B\x1b[0m\x1b[36m, \x1b(B\x1b[0;1m\x1b[32m508\x1b(B\x1b[0m\x1b[32m thr\x1b[36m; \x1b(B\x1b[0;1m\x1b[32m1\x1b(B\x1b[0m\x1b[36m running\x1b[3;3H  1\x1b[39m\x1b(B\x1b[0;1m[\x1b[90m\x1b[46X\x1b[3;53H0.0%\x1b[39m]\x1b(B\x1b[m   \x1b[36mLoad average: \x1b(B\x1b[0;1m0.03 \x1b[36m0.06 \x1b(B\x1b[0m\x1b[36m0.03",
+			expected: "d    0[X0.0%]   Tasks: 126, 508 thr; 1 running  1[X0.0%]   Load average: 0.03 0.06 0.03",
+		},
+		{
+			name:     "cursor positioning",
+			input:    "\x1b[5;10HPosition here",
+			expected: "Position here",
+		},
+		{
+			name:     "screen clearing",
+			input:    "Text before\x1b[2JText after",
+			expected: "Text beforeText after",
+		},
+		{
+			name:     "complex htop process line",
+			input:    "\x1b[10d\x1b[0m\x1b[30m\x1b[42m    PID USER      PRI  NI  VIRT   RES   SHR S \x1b[30m\x1b[46mCPU%\x1b[30m\x1b[42mMEM%   TIME+  Command\x1b[K\n\x1b[11d\x1b[30m\x1b[46m3225996 cigar      20   0  8948  5072  3480 R 100.  0.0  0:00.08 htop\x1b[K",
+			expected: "d    PID USER      PRI  NI  VIRT   RES   SHR S CPU%MEM%   TIME+  Command\nd3225996 cigar      20   0  8948  5072  3480 R 100.  0.0  0:00.08 htop",
+		},
 	}
 
 	for _, tt := range tests {

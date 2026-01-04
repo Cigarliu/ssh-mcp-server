@@ -49,6 +49,10 @@ func sshConnectSchema() map[string]any {
 			"type":        "string",
 			"description": "私钥密码（可选）",
 		},
+		"sudo_password": map[string]any{
+			"type":        "string",
+			"description": "sudo 密码（可选）。如果提供，执行 sudo 命令时会自动注入此密码，无需手动输入。建议仅在安全环境中使用。",
+		},
 		"alias": map[string]any{
 			"type":        "string",
 			"description": "会话别名，简短易记的标识符，用于代替 session_id 引用会话。建议根据实际使用场景设置，比如：prod, staging, db, nginx, web。连接前请先调用 ssh_list_sessions() 查看已有别名，避免重复。如果发现冲突，请调整（如：prod → prod-2, web → web-01）。设置别名后，后续所有操作都可用 alias 代替 session_id。",
@@ -118,6 +122,11 @@ func sshExecBatchSchema() map[string]any {
 			"description": "超时时间（秒），默认 30",
 			"default":     30,
 		},
+		"compact": map[string]any{
+			"type":        "boolean",
+			"description": "简洁输出模式，只显示摘要和失败的命令，默认 false",
+			"default":     false,
+		},
 	}, []string{"session_id", "commands"})
 }
 
@@ -135,12 +144,12 @@ func sshShellSchema() map[string]any {
 		},
 		"rows": map[string]any{
 			"type":        "integer",
-			"description": "终端行数，默认 24",
+			"description": "终端行数，默认 24。建议值：30 行适合 htop，40 行适合 vim/htop 并用，24 行适合大多数命令",
 			"default":     24,
 		},
 		"cols": map[string]any{
 			"type":        "integer",
-			"description": "终端列数，默认 80",
+			"description": "终端列数，默认 80。建议值：80 列适合大多数场景，120 列适合查看日志或表格数据",
 			"default":     80,
 		},
 		"mode": map[string]any{
@@ -151,14 +160,18 @@ func sshShellSchema() map[string]any {
 		},
 		"ansi_mode": map[string]any{
 			"type":        "string",
-			"description": "ANSI 处理模式：raw（保留所有控制码，默认）、strip（移除 ANSI 序列，输出纯文本，AI 友好）、parse（结构化解析，未来功能）",
+			"description": "ANSI 处理模式：strip（移除 ANSI 序列，输出纯文本，AI 友好，默认）、raw（保留所有控制码）、parse（结构化解析，未来功能）。推荐使用 strip 获得最佳可读性",
 			"enum":        []string{"raw", "strip", "parse"},
-			"default":     "raw",
+			"default":     "strip",
 		},
 		"read_timeout": map[string]any{
 			"type":        "integer",
 			"description": "读取超时时间（毫秒），默认 100ms。非阻塞模式下建议使用较短的超时以快速响应",
 			"default":     100,
+		},
+		"working_dir": map[string]any{
+			"type":        "string",
+			"description": "工作目录（可选）。启动 shell 前会自动执行 cd 命令切换到此目录。例如：/home/user/projects",
 		},
 	}, []string{"session_id"})
 }
@@ -185,8 +198,8 @@ func sftpUploadSchema() map[string]any {
 		},
 		"overwrite": map[string]any{
 			"type":        "boolean",
-			"description": "是否覆盖已存在文件，默认 true",
-			"default":     true,
+			"description": "是否覆盖已存在文件，默认 false。设置为 true 时会覆盖远程同名文件，请谨慎使用",
+			"default":     false,
 		},
 	}, []string{"session_id", "local_path", "remote_path"})
 }
@@ -213,8 +226,8 @@ func sftpDownloadSchema() map[string]any {
 		},
 		"overwrite": map[string]any{
 			"type":        "boolean",
-			"description": "是否覆盖已存在文件，默认 true",
-			"default":     true,
+			"description": "是否覆盖已存在文件，默认 false。设置为 true 时会覆盖远程同名文件，请谨慎使用",
+			"default":     false,
 		},
 	}, []string{"session_id", "remote_path", "local_path"})
 }
@@ -315,7 +328,7 @@ func sshReadOutputSchema() map[string]any {
 		},
 		"non_blocking": map[string]any{
 			"type":        "boolean",
-			"description": "是否使用非阻塞读取模式。默认 false。启用后会在超时前返回已读取的数据，不会因等待 EOF 而阻塞。强烈推荐用于交互式程序（top、vim、gdb 等）",
+			"description": "是否使用非阻塞读取模式。默认 false。启用后会在超时前返回已读取的数据，不会因等待 EOF 而阻塞。使用建议：交互式程序（htop、vim、gdb、top）必须设置为 true；简单命令（ls、cat、echo）可使用 false。配合 read_timeout=100 使用可快速响应",
 			"default":     false,
 		},
 	}, []string{"session_id"})
@@ -387,4 +400,34 @@ func sshRemoveHostSchema() map[string]any {
 			"description": "要删除的主机名称",
 		},
 	}, []string{"name"})
+}
+
+// sshShellStatusSchema returns the input schema for ssh_shell_status
+func sshShellStatusSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"session_id": map[string]any{
+			"type":        "string",
+			"description": "会话 ID 或别名",
+		},
+	}, []string{"session_id"})
+}
+
+// sshHistorySchema returns the input schema for ssh_history
+func sshHistorySchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"session_id": map[string]any{
+			"type":        "string",
+			"description": "会话 ID 或别名",
+		},
+		"limit": map[string]any{
+			"type":        "integer",
+			"description": "返回的最大历史记录数，默认 10。设置为 0 返回所有历史记录",
+			"default":     10,
+		},
+		"source": map[string]any{
+			"type":        "string",
+			"description": "过滤命令来源：'exec' (ssh_exec执行的命令), 'shell' (交互式shell中的命令), 或留空显示所有",
+			"default":     "",
+		},
+	}, []string{"session_id"})
 }

@@ -10,6 +10,20 @@ import (
 	"github.com/pkg/sftp"
 )
 
+// formatBytes converts bytes to human-readable format
+func formatBytes(bytes float64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%.1f B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", bytes/float64(div), "KMGTPE"[exp])
+}
+
 // UploadFile uploads a file to the remote host
 func (s *Session) UploadFile(localPath, remotePath string, createDirs, overwrite bool) (*FileTransferResult, error) {
 	s.mu.Lock()
@@ -76,10 +90,25 @@ func (s *Session) UploadFile(localPath, remotePath string, createDirs, overwrite
 
 	duration := time.Since(startTime)
 
+	// 计算传输速度
+	var speed string
+	if duration.Seconds() > 0 {
+		bytesPerSecond := float64(bytesTransferred) / duration.Seconds()
+		speed = formatBytes(bytesPerSecond) + "/s"
+	}
+
+	// 计算进度（100%，因为传输已完成）
+	progress := 100.0
+
 	return &FileTransferResult{
 		Status:           "success",
 		BytesTransferred: bytesTransferred,
 		Duration:         duration.String(),
+		FileSize:         fileInfo.Size(),
+		Progress:         progress,
+		Speed:            speed,
+		FilePath:         localPath,
+		Operation:        "upload",
 	}, nil
 }
 
@@ -199,10 +228,25 @@ func (s *Session) DownloadFile(remotePath, localPath string, createDirs, overwri
 
 	duration := time.Since(startTime)
 
+	// 计算传输速度
+	var speed string
+	if duration.Seconds() > 0 {
+		bytesPerSecond := float64(bytesTransferred) / duration.Seconds()
+		speed = formatBytes(bytesPerSecond) + "/s"
+	}
+
+	// 计算进度（100%，因为传输已完成）
+	progress := 100.0
+
 	return &FileTransferResult{
 		Status:           "success",
 		BytesTransferred: bytesTransferred,
 		Duration:         duration.String(),
+		FileSize:         fileInfo.Size(),
+		Progress:         progress,
+		Speed:            speed,
+		FilePath:         remotePath,
+		Operation:        "download",
 	}, nil
 }
 

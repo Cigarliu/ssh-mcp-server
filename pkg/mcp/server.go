@@ -128,6 +128,20 @@ func (s *Server) registerTools() {
 		InputSchema: sshResizePtySchema(),
 	}, s.handleSSHResizePty)
 
+	// Shell 状态查询工具
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "ssh_shell_status",
+		Description: "查询 shell 会话状态（是否活动、当前目录、是否有未读取输出等）",
+		InputSchema: sshShellStatusSchema(),
+	}, s.handleSSHShellStatus)
+
+	// 命令历史工具
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "ssh_history",
+		Description: "查看会话的命令执行历史（记录所有通过 ssh_exec 和 ssh_exec_batch 执行的命令）",
+		InputSchema: sshHistorySchema(),
+	}, s.handleSSHHistory)
+
 	// 主机管理工具
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "ssh_list_hosts",
