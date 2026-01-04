@@ -14,6 +14,81 @@
 
 ---
 
+## 🚀 快速开始（三步上手）
+
+### 1️⃣ 编译
+
+```bash
+git clone https://github.com/Cigarliu/ssh-mcp-server.git
+cd ssh-mcp-server
+go build -o bin/sshmcp ./cmd/server
+```
+
+### 2️⃣ 配置 Claude Desktop
+
+打开 Claude Desktop 配置文件，添加以下内容：
+
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "ssh-mcp": {
+      "command": "D:\\cigar\\ssh-mcp-server\\bin\\sshmcp.exe",
+      "args": []
+    }
+  }
+}
+```
+
+> **注意：** 将 `command` 路径改为你实际编译后的可执行文件路径
+> - **Windows:** 使用 `\\` 或 `/` 作为路径分隔符，例如 `"D:/cigar/ssh-mcp-server/bin/sshmcp.exe"`
+> - **macOS/Linux:** 使用绝对路径，例如 `"/Users/yourname/ssh-mcp-server/bin/sshmcp"`
+
+### 3️⃣ 立即使用
+
+重启 Claude Desktop，然后直接对话：
+
+```
+连接到 192.168.1.100，用户 root，密码 root，执行 ls -la
+```
+
+就这样！Claude 会自动调用 SSH MCP Server 完成操作。
+
+### 📝 更多使用示例
+
+**场景 1：使用会话别名（推荐）**
+```
+1. 连接生产服务器，别名设为 prod
+2. 查看 prod 服务器的磁盘空间
+3. 上传部署包到 prod 服务器
+```
+
+**场景 2：交互式终端**
+```
+1. 连接 SSH 服务器
+2. 启动交互式 shell（Raw 模式）
+3. 运行 top 命令查看系统资源
+4. 按 P 键按 CPU 排序，M 键按内存排序
+5. 按 q 退出
+```
+
+**场景 3：批量操作**
+```
+依次执行以下命令：
+1. cd /var/log
+2. ls -la
+3. tail -n 50 syslog
+```
+
+**场景 4：文件传输**
+```
+上传本地文件 app.tar.gz 到远程服务器的 /tmp/ 目录
+```
+
+---
+
 ## ✨ 为什么选择 SSH MCP Server？
 
 市面上已有几个 SSH MCP 实现，但它们大多只提供基础的命令执行功能。SSH MCP Server 从零设计，提供了**其他方案没有的企业级功能**：
@@ -381,6 +456,81 @@ An SSH server implementation based on the Model Context Protocol (MCP), enabling
 [![GitHub stars](https://img.shields.io/github/stars/Cigarliu/ssh-mcp-server?style=social)](https://github.com/Cigarliu/ssh-mcp-server/stargazers)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Cigarliu/ssh-mcp-server)](https://goreportcard.com/report/github.com/Cigarliu/ssh-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## 🚀 Quick Start (3 Steps)
+
+### 1️⃣ Build
+
+```bash
+git clone https://github.com/Cigarliu/ssh-mcp-server.git
+cd ssh-mcp-server
+go build -o bin/sshmcp ./cmd/server
+```
+
+### 2️⃣ Configure Claude Desktop
+
+Open your Claude Desktop configuration file and add:
+
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "ssh-mcp": {
+      "command": "D:\\cigar\\ssh-mcp-server\\bin\\sshmcp.exe",
+      "args": []
+    }
+  }
+}
+```
+
+> **Note:** Change `command` path to your actual compiled binary path
+> - **Windows:** Use `\\` or `/` as path separator, e.g. `"D:/cigar/ssh-mcp-server/bin/sshmcp.exe"`
+> - **macOS/Linux:** Use absolute path, e.g. `"/Users/yourname/ssh-mcp-server/bin/sshmcp"`
+
+### 3️⃣ Start Using
+
+Restart Claude Desktop and chat:
+
+```
+Connect to 192.168.1.100, username root, password root, execute ls -la
+```
+
+That's it! Claude will automatically use SSH MCP Server to complete the operation.
+
+### 📝 More Usage Examples
+
+**Scenario 1: Using Session Aliases (Recommended)**
+```
+1. Connect to production server with alias "prod"
+2. Check disk space on "prod" server
+3. Upload deployment package to "prod" server
+```
+
+**Scenario 2: Interactive Terminal**
+```
+1. Connect to SSH server
+2. Start interactive shell (Raw Mode)
+3. Run top command to view system resources
+4. Press P to sort by CPU, M to sort by memory
+5. Press q to quit
+```
+
+**Scenario 3: Batch Operations**
+```
+Execute the following commands sequentially:
+1. cd /var/log
+2. ls -la
+3. tail -n 50 syslog
+```
+
+**Scenario 4: File Transfer**
+```
+Upload local file app.tar.gz to /tmp/ directory on remote server
+```
 
 ---
 
