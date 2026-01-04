@@ -10,6 +10,20 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// formatBytes converts bytes to human-readable format
+func formatBytes(bytes float64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%.1f B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", bytes/float64(div), "KMGTPE"[exp])
+}
+
 // Tool handler parameter structures (使用 map[string]any 作为输入类型)
 
 // handleSSHConnect handles the ssh_connect tool
@@ -21,6 +35,7 @@ func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest,
 	password, _ := args["password"].(string)
 	privateKey, _ := args["private_key"].(string)
 	passphrase, _ := args["passphrase"].(string)
+	sudoPassword, _ := args["sudo_password"].(string)
 	portVal, _ := args["port"].(float64)
 	alias, _ := args["alias"].(string)
 
@@ -87,7 +102,8 @@ func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	authConfig := &sshmcp.AuthConfig{
-		Type: sshmcp.AuthType(authType),
+		Type:         sshmcp.AuthType(authType),
+		SudoPassword: sudoPassword, // 设置 sudo 密码
 	}
 
 	switch authConfig.Type {
@@ -174,7 +190,7 @@ func (s *Server) handleSSHExec(ctx context.Context, req *mcp.CallToolRequest, ar
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -218,6 +234,7 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 	commandsInterface, _ := args["commands"].([]any)
 	stopOnErrorVal, _ := args["stop_on_error"].(bool)
 	timeoutVal, _ := args["timeout"].(float64)
+	compactVal, _ := args["compact"].(bool)
 
 	commands := make([]string, len(commandsInterface))
 	for i, cmd := range commandsInterface {
@@ -227,7 +244,7 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -245,6 +262,24 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 		}, nil, nil
 	}
 
+	// compact 模式：简洁输出
+	if compactVal {
+		output := "✓ Batch execution completed\n"
+		output += fmt.Sprintf("  Total: %d | Success: %d | Failed: %d\n", summary.Total, summary.Success, summary.Failed)
+		if summary.Failed > 0 {
+			output += "\nFailed commands:\n"
+			for i, result := range results {
+				if result.ExitCode != 0 {
+					output += fmt.Sprintf("  %d. %s (exit: %d)\n", i+1, commands[i], result.ExitCode)
+				}
+			}
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: output}},
+		}, nil, nil
+	}
+
+	// 默认：详细输出
 	output := fmt.Sprintf("Batch Execution Summary:\n")
 	output += fmt.Sprintf("Total: %d, Success: %d, Failed: %d\n\n", summary.Total, summary.Success, summary.Failed)
 
@@ -274,11 +309,12 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	mode, _ := args["mode"].(string)
 	ansiMode, _ := args["ansi_mode"].(string)
 	readTimeoutVal, _ := args["read_timeout"].(float64)
+	workingDir, _ := args["working_dir"].(string)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -294,14 +330,14 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 
 	// 创建 Shell 配置
 	config := sshmcp.DefaultShellConfig()
-	
+
 	// 设置终端模式
 	if mode == "raw" {
 		config.Mode = sshmcp.TerminalModeRaw
 	} else {
 		config.Mode = sshmcp.TerminalModeCooked
 	}
-	
+
 	// 设置 ANSI 处理模式
 	switch ansiMode {
 	case "strip":
@@ -311,12 +347,12 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	default:
 		config.ANSIMode = sshmcp.ANSIRaw
 	}
-	
+
 	// 设置读取超时
 	if readTimeoutVal > 0 {
 		config.ReadTimeout = time.Duration(readTimeoutVal) * time.Millisecond
 	}
-	
+
 	// 使用配置创建 Shell
 	_, err = session.CreateShellWithConfig(term, rows, cols, config)
 	if err != nil {
@@ -326,8 +362,16 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 		}, nil, nil
 	}
 
+	// 如果指定了工作目录，切换到该目录
+	var extraMsg string
+	if workingDir != "" {
+		// 使用 cd 命令切换目录
+		session.ShellSession.WriteInput(fmt.Sprintf("cd %s", workingDir))
+		extraMsg = fmt.Sprintf("\nWorking directory set to: %s", workingDir)
+	}
+
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Interactive shell started for session %s\nUse ssh_write_input to send commands and ssh_read_output to receive responses", sessionID)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Interactive shell started for session %s%s\nUse ssh_write_input to send commands and ssh_read_output to receive responses", sessionID, extraMsg)}},
 	}, nil, nil
 }
 
@@ -342,7 +386,7 @@ func (s *Server) handleSFTPUpload(ctx context.Context, req *mcp.CallToolRequest,
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -355,9 +399,21 @@ func (s *Server) handleSFTPUpload(ctx context.Context, req *mcp.CallToolRequest,
 		}, nil, nil
 	}
 
+	// 构建详细的输出消息
+	output := fmt.Sprintf("Upload successful:\n")
+	output += fmt.Sprintf("  Status: %s\n", result.Status)
+	output += fmt.Sprintf("  Local: %s\n", localPath)
+	output += fmt.Sprintf("  Remote: %s\n", remotePath)
+	output += fmt.Sprintf("  Size: %s\n", formatBytes(float64(result.FileSize)))
+	output += fmt.Sprintf("  Transferred: %s\n", formatBytes(float64(result.BytesTransferred)))
+	output += fmt.Sprintf("  Progress: %.1f%%\n", result.Progress)
+	if result.Speed != "" {
+		output += fmt.Sprintf("  Speed: %s\n", result.Speed)
+	}
+	output += fmt.Sprintf("  Duration: %s\n", result.Duration)
+
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Upload successful:\nStatus: %s\nBytes transferred: %d\nDuration: %s",
-			result.Status, result.BytesTransferred, result.Duration)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: output}},
 	}, nil, nil
 }
 
@@ -372,7 +428,7 @@ func (s *Server) handleSFTPDownload(ctx context.Context, req *mcp.CallToolReques
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -385,9 +441,21 @@ func (s *Server) handleSFTPDownload(ctx context.Context, req *mcp.CallToolReques
 		}, nil, nil
 	}
 
+	// 构建详细的输出消息
+	output := fmt.Sprintf("Download successful:\n")
+	output += fmt.Sprintf("  Status: %s\n", result.Status)
+	output += fmt.Sprintf("  Remote: %s\n", remotePath)
+	output += fmt.Sprintf("  Local: %s\n", localPath)
+	output += fmt.Sprintf("  Size: %s\n", formatBytes(float64(result.FileSize)))
+	output += fmt.Sprintf("  Transferred: %s\n", formatBytes(float64(result.BytesTransferred)))
+	output += fmt.Sprintf("  Progress: %.1f%%\n", result.Progress)
+	if result.Speed != "" {
+		output += fmt.Sprintf("  Speed: %s\n", result.Speed)
+	}
+	output += fmt.Sprintf("  Duration: %s\n", result.Duration)
+
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Download successful:\nStatus: %s\nBytes transferred: %d\nDuration: %s",
-			result.Status, result.BytesTransferred, result.Duration)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: output}},
 	}, nil, nil
 }
 
@@ -400,7 +468,7 @@ func (s *Server) handleSFTPListDir(ctx context.Context, req *mcp.CallToolRequest
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -435,7 +503,7 @@ func (s *Server) handleSFTPMkdir(ctx context.Context, req *mcp.CallToolRequest, 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -467,7 +535,7 @@ func (s *Server) handleSFTPDelete(ctx context.Context, req *mcp.CallToolRequest,
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -494,7 +562,7 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -505,7 +573,7 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 
 	if !hasShell {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s", sessionID)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s\nHint: Use ssh_shell() to start an interactive shell first", sessionID)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -548,7 +616,7 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -559,7 +627,7 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 
 	if !hasShell {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s", sessionID)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s\nHint: Use ssh_shell() to start an interactive shell first", sessionID)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -610,7 +678,7 @@ func (s *Server) handleSSHResizePty(ctx context.Context, req *mcp.CallToolReques
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -621,7 +689,7 @@ func (s *Server) handleSSHResizePty(ctx context.Context, req *mcp.CallToolReques
 
 	if !hasShell {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s", sessionID)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s\nHint: Use ssh_shell() to start an interactive shell first", sessionID)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -779,5 +847,124 @@ func (s *Server) handleSSHRemoveHost(ctx context.Context, req *mcp.CallToolReque
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Host '%s' removed successfully", name)}},
+	}, nil, nil
+}
+
+// handleSSHShellStatus handles the ssh_shell_status tool
+func (s *Server) handleSSHShellStatus(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	sessionID, _ := args["session_id"].(string)
+
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	session.RLock()
+	hasShell := session.ShellSession != nil
+	session.RUnlock()
+
+	if !hasShell {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s\nHint: Use ssh_shell() to start an interactive shell first", sessionID)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	status := session.ShellSession.GetStatus()
+
+	// 格式化输出
+	output := "Shell Status:\n"
+	output += fmt.Sprintf("  Active: %v\n", status.IsActive)
+	output += fmt.Sprintf("  Current Directory: %s\n", status.CurrentDir)
+	output += fmt.Sprintf("  Has Unread Output: %v\n", status.HasUnreadOutput)
+	output += fmt.Sprintf("  Last Read Time: %s\n", status.LastReadTime.Format(time.RFC3339))
+	output += fmt.Sprintf("  Last Write Time: %s\n", status.LastWriteTime.Format(time.RFC3339))
+	output += fmt.Sprintf("  Terminal: %s (%dx%d)\n", status.TerminalType, status.Rows, status.Cols)
+	output += fmt.Sprintf("  Mode: %s\n", status.Mode)
+	output += fmt.Sprintf("  ANSI Mode: %s\n", status.ANSIMode)
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: output}},
+	}, nil, nil
+}
+
+// handleSSHHistory handles the ssh_history tool
+func (s *Server) handleSSHHistory(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	sessionID, _ := args["session_id"].(string)
+	limitVal, _ := args["limit"].(float64)
+	sourceFilter, _ := args["source"].(string) // "exec", "shell", 或 "" (全部)
+
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	session.RLock()
+	history := session.CommandHistory
+	session.RUnlock()
+
+	// 根据 source 过滤
+	var filteredHistory []sshmcp.CommandHistoryEntry
+	if sourceFilter != "" {
+		for _, entry := range history {
+			if entry.Source == sourceFilter {
+				filteredHistory = append(filteredHistory, entry)
+			}
+		}
+	} else {
+		filteredHistory = history
+	}
+
+	limit := int(limitVal)
+	if limit <= 0 {
+		limit = len(filteredHistory)
+	}
+
+	// 获取最近的 N 条记录（从后往前）
+	start := len(filteredHistory) - limit
+	if start < 0 {
+		start = 0
+	}
+	recentHistory := filteredHistory[start:]
+
+	if len(recentHistory) == 0 {
+		sourceMsg := ""
+		if sourceFilter != "" {
+			sourceMsg = fmt.Sprintf(" (source: %s)", sourceFilter)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No command history yet%s. Execute some commands first using ssh_exec or ssh_exec_batch.\n", sourceMsg)}},
+		}, nil, nil
+	}
+
+	// 格式化输出
+	sourceInfo := ""
+	if sourceFilter != "" {
+		sourceInfo = fmt.Sprintf(" [source: %s]", sourceFilter)
+	}
+	output := fmt.Sprintf("Command History%s (showing %d of %d total):\n\n", sourceInfo, len(recentHistory), len(filteredHistory))
+	for i, entry := range recentHistory {
+		status := "✓"
+		if !entry.Success {
+			status = "✗"
+		}
+		sourceLabel := entry.Source
+		if sourceLabel == "" {
+			sourceLabel = "unknown"
+		}
+		output += fmt.Sprintf("%d. [%s] %s [source: %s]\n", i+1, status, entry.Command, sourceLabel)
+		output += fmt.Sprintf("   Exit Code: %d\n", entry.ExitCode)
+		output += fmt.Sprintf("   Time: %s\n", entry.Timestamp.Format("2006-01-02 15:04:05"))
+		output += fmt.Sprintf("   Duration: %s\n\n", entry.ExecutionTime)
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: output}},
 	}, nil, nil
 }

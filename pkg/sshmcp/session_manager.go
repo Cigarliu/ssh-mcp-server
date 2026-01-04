@@ -149,6 +149,7 @@ func (sm *SessionManager) CreateSession(host string, port int, username string, 
 		LastUsedAt:  time.Now(),
 		ExpiresAt:   time.Now().Add(sm.config.SessionTimeout),
 		Config:      config,
+		AuthConfig:  authConfig, // 保存认证配置（包含sudo密码）
 	}
 
 	// 存储会话

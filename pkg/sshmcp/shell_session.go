@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/acarl005/stripansi"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -33,16 +35,6 @@ func IsInteractiveProgram(cmd string) bool {
 	}
 	return false
 }
-
-// ANSI escape sequence pattern (basic pattern for stripping)
-var ansiEscapePattern = strings.NewReplacer(
-	"\x1b[", "",  // CSI sequences
-	"\x1b]", "",  // OSC sequences
-	"\x1b(", "",  // Select character set
-	"\x1b)", "",
-	"\x1b=", "",  // Application keypad mode
-	"\x1b>", "",
-)
 
 // CreateShell creates an interactive shell session with default config
 func (s *Session) CreateShell(term string, rows, cols uint16) (*SSHShellSession, error) {
@@ -148,7 +140,55 @@ func (ss *SSHShellSession) WriteInput(input string) error {
 	}
 
 	_, err := ss.Stdin.Write([]byte(input))
+	if err == nil {
+		ss.LastWriteTime = time.Now()
+	}
 	return err
+}
+
+// extractCurrentDir 从输出中提取当前目录
+// 支持常见的提示符格式：
+// - user@host:path$  (Ubuntu/Debian)
+// - [user@host path]# (RHEL/CentOS)
+// - path$          (简单格式)
+func extractCurrentDir(output string) string {
+	lines := strings.Split(output, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+
+	// 检查最后一行（通常是提示符）
+	lastLine := lines[len(lines)-1]
+
+	// 尝试匹配 user@host:path 格式（Ubuntu/Debian）
+	if matches := regexp.MustCompile(`[\w-]+@[\w-]+:([~$\/\w\-\.\{\}]+)[\$%#]`).FindStringSubmatch(lastLine); len(matches) > 1 {
+		dir := matches[1]
+		// 展开波浪号
+		if dir == "~" {
+			return "/home/" + os.Getenv("USER")
+		}
+		return dir
+	}
+
+	// 尝试匹配 [user@host path] 格式（RHEL/CentOS）
+	if matches := regexp.MustCompile(`\[[\w-]+@[\w-]+ ([~$\/\w\-\.\{\}]+)\][\$%#]`).FindStringSubmatch(lastLine); len(matches) > 1 {
+		dir := matches[1]
+		if dir == "~" {
+			return "/home/" + os.Getenv("USER")
+		}
+		return dir
+	}
+
+	// 尝试匹配简单的 path$ 格式
+	if matches := regexp.MustCompile(`^([~$\/\w\-\.\{\}]+)[\$%#]$`).FindStringSubmatch(strings.TrimSpace(lastLine)); len(matches) > 1 {
+		dir := matches[1]
+		if dir == "~" {
+			return "/home/" + os.Getenv("USER")
+		}
+		return dir
+	}
+
+	return ""
 }
 
 // ReadOutput reads output from the shell with timeout
@@ -189,11 +229,23 @@ func (ss *SSHShellSession) ReadOutput(timeout time.Duration) (string, string, er
 				stderrErr = err
 			}
 		case <-timeoutChan:
-			return stdoutBuf.String(), stderrBuf.String(), nil
+			stdoutStr := stdoutBuf.String()
+			stderrStr := stderrBuf.String()
+			// 更新状态
+			ss.LastReadTime = time.Now()
+			ss.hasUnreadData = stdoutBuf.Len() > 0 || stderrBuf.Len() > 0
+			return stdoutStr, stderrStr, nil
 		}
 	}
 
-	return stdoutBuf.String(), stderrBuf.String(), fmt.Errorf("stdout: %v, stderr: %v", stdoutErr, stderrErr)
+	stdoutStr := stdoutBuf.String()
+	stderrStr := stderrBuf.String()
+
+	// 更新状态
+	ss.LastReadTime = time.Now()
+	ss.hasUnreadData = false
+
+	return stdoutStr, stderrStr, fmt.Errorf("stdout: %v, stderr: %v", stdoutErr, stderrErr)
 }
 
 // Resize changes the terminal window size
@@ -245,15 +297,32 @@ func (ss *SSHShellSession) Close() error {
 // IsAlive checks if the shell session is still alive
 func (ss *SSHShellSession) IsAlive() bool {
 	ss.mu.Lock()
-	defer ss.mu.Unlock()
+	session := ss.Session
+	ss.mu.Unlock()
 
-	if ss.Session == nil {
+	if session == nil {
 		return false
 	}
 
-	// 发送 keepalive 信号
-	_, err := ss.Session.SendRequest("keepalive", true, nil)
-	return err == nil
+	// 使用 channel 和 goroutine 实现 keepalive 超时
+	type result struct {
+		alive bool
+	}
+	resultChan := make(chan result, 1)
+
+	go func() {
+		_, err := session.SendRequest("keepalive", true, nil)
+		resultChan <- result{alive: err == nil}
+	}()
+
+	// 等待结果，最多 1 秒
+	select {
+	case res := <-resultChan:
+		return res.alive
+	case <-time.After(1 * time.Second):
+		// 超时，认为 session 不活跃
+		return false
+	}
 }
 
 // ReadOutputNonBlocking reads output with non-blocking I/O
@@ -354,6 +423,17 @@ func (ss *SSHShellSession) ReadOutputNonBlocking(timeout time.Duration) (string,
 		}
 	}
 
+	// 更新状态
+	ss.LastReadTime = time.Now()
+	ss.hasUnreadData = false
+
+	// 尝试从输出中提取当前目录
+	if stdoutStr != "" {
+		if dir := extractCurrentDir(stdoutStr); dir != "" {
+			ss.currentDir = dir
+		}
+	}
+
 	if stdoutErr != nil || stderrErr != nil {
 		return stdoutStr, stderrStr, fmt.Errorf("stdout: %v, stderr: %v", stdoutErr, stderrErr)
 	}
@@ -361,46 +441,24 @@ func (ss *SSHShellSession) ReadOutputNonBlocking(timeout time.Duration) (string,
 	return stdoutStr, stderrStr, nil
 }
 
-// stripANSI removes ANSI escape sequences from string
+// stripANSI removes ANSI escape sequences from string using the stripansi library
 func stripANSI(s string) string {
-	// 使用字节级别的处理，更安全可靠
-	var result []byte
-	input := []byte(s)
-	i := 0
+	// 使用 stripansi 库移除 ANSI 转义序列
+	result := stripansi.Strip(s)
 
-	for i < len(input) {
-		// 检查是否是 ANSI 转义序列的开始 (ESC + '[')
-		if input[i] == 0x1B && i+1 < len(input) && input[i+1] == '[' {
-			// 跳过转义序列，直到找到终止字符
-			i += 2 // 跳过 ESC + '['
-			// 跳过序列中的所有字符，直到找到终止符
-			for i < len(input) {
-				// 常见的 ANSI 终止符：A-Z, a-z, @, ~
-				c := input[i]
-				if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '@' {
-					i++ // 跳过终止符
-					break
-				}
-				i++
-			}
-		} else if input[i] == 0x1B && i+1 < len(input) && (input[i+1] == ']' || input[i+1] == '(' || input[i+1] == ')') {
-			// 处理其他类型的转义序列（OSC, 字符集选择等）
-			i += 2
-			for i < len(input) {
-				if input[i] == 0x07 || input[i] == 0x1B || (input[i] >= 'A' && input[i] <= 'Z') {
-					i++
-					break
-				}
-				i++
-			}
-		} else {
-			// 普通字符，添加到结果
-			result = append(result, input[i])
-			i++
+	// 移除 carriage return (通常在行尾)
+	result = strings.ReplaceAll(result, "\r", "")
+
+	// 移除零宽字符和其他不可见控制字符（除了换行和制表符）
+	cleaned := strings.Builder{}
+	for _, r := range result {
+		// 保留可打印字符、换行、制表符
+		if r == '\n' || r == '\t' || r >= 32 {
+			cleaned.WriteRune(r)
 		}
 	}
 
-	return string(result)
+	return cleaned.String()
 }
 
 // WriteSpecialChars writes special control characters to the shell
@@ -467,4 +525,47 @@ func (ss *SSHShellSession) GetConfig() *ShellConfig {
 	defer ss.mu.Unlock()
 
 	return ss.Config
+}
+
+// GetStatus returns the current status of the shell session
+func (ss *SSHShellSession) GetStatus() *ShellStatus {
+	ss.mu.Lock()
+
+	// 复制需要的数据
+	currentDir := ss.currentDir
+	hasUnreadData := ss.hasUnreadData
+	lastReadTime := ss.LastReadTime
+	lastWriteTime := ss.LastWriteTime
+	terminalType := ss.TerminalInfo.Term
+	rows := ss.TerminalInfo.Rows
+	cols := ss.TerminalInfo.Cols
+	ansiMode := ss.Config.ANSIMode.String()
+	mode := ss.Config.Mode
+
+	ss.mu.Unlock()
+
+	// 在锁外调用 IsAlive()，避免死锁
+	status := &ShellStatus{
+		IsActive:      ss.IsAlive(),
+		CurrentDir:    currentDir,
+		HasUnreadOutput: hasUnreadData,
+		LastReadTime:  lastReadTime,
+		LastWriteTime: lastWriteTime,
+		TerminalType:  terminalType,
+		Rows:          rows,
+		Cols:          cols,
+		ANSIMode:      ansiMode,
+	}
+
+	// Convert mode to string
+	switch mode {
+	case TerminalModeCooked:
+		status.Mode = "cooked"
+	case TerminalModeRaw:
+		status.Mode = "raw"
+	default:
+		status.Mode = "unknown"
+	}
+
+	return status
 }

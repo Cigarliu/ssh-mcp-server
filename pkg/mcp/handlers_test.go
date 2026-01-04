@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cigar/sshmcp/pkg/sshmcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,6 +74,102 @@ func TestHandleSSHExec(t *testing.T) {
 	assert.Nil(t, output)
 	assert.NotNil(t, result.Content)
 	assert.Greater(t, len(result.Content), 0)
+}
+
+// TestHandleSSHConnectWithSudoPassword tests ssh_connect with sudo_password parameter
+func TestHandleSSHConnectWithSudoPassword(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过需要SSH连接的测试（使用 -short 标志）")
+	}
+
+	server, sm := setupTestServer(t)
+	defer sm.Close()
+
+	// 使用真实的 SSH 连接信息
+	host := "192.168.20.18"
+	username := "cigar"
+	password := "liuxuejia.123"
+	sudoPassword := "liuxuejia.123"
+
+	t.Logf("测试连接到 %s@%s 并配置 sudo 密码", username, host)
+
+	// 测试 1: 不带 sudo_password 的连接
+	t.Run("ConnectWithoutSudoPassword", func(t *testing.T) {
+		args := map[string]any{
+			"host":     host,
+			"username": username,
+			"password": password,
+			"alias":    "test-no-sudo",
+		}
+
+		result, output, err := server.handleSSHConnect(context.Background(), nil, args)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Nil(t, output)
+		assert.False(t, result.IsError)
+
+		// 验证连接成功
+		session, err := sm.GetSessionByAlias("test-no-sudo")
+		assert.NoError(t, err)
+		assert.NotNil(t, session)
+		assert.Empty(t, session.AuthConfig.SudoPassword, "不应该有 sudo 密码")
+
+		sm.RemoveSession(session.ID)
+	})
+
+	// 测试 2: 带 sudo_password 的连接
+	t.Run("ConnectWithSudoPassword", func(t *testing.T) {
+		args := map[string]any{
+			"host":          host,
+			"username":      username,
+			"password":      password,
+			"sudo_password":  sudoPassword,
+			"alias":         "test-with-sudo",
+		}
+
+		result, output, err := server.handleSSHConnect(context.Background(), nil, args)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Nil(t, output)
+		assert.False(t, result.IsError)
+
+		// 验证连接成功且 sudo 密码已设置
+		session, err := sm.GetSessionByAlias("test-with-sudo")
+		assert.NoError(t, err)
+		assert.NotNil(t, session)
+		assert.Equal(t, sudoPassword, session.AuthConfig.SudoPassword, "应该有 sudo 密码")
+
+		t.Logf("✅ sudo 密码已正确保存到 AuthConfig: %s", session.AuthConfig.SudoPassword)
+
+		// 测试 3: 验证 sudo 命令能自动注入密码
+		t.Run("ExecuteSudoCommand", func(t *testing.T) {
+			// 执行 sudo 命令
+			execArgs := map[string]any{
+				"session_id": session.ID,
+				"command":    "sudo whoami",
+				"timeout":    5,
+			}
+
+			execResult, execOutput, execErr := server.handleSSHExec(context.Background(), nil, execArgs)
+			assert.NoError(t, execErr)
+			assert.NotNil(t, execResult)
+			assert.Nil(t, execOutput)
+			assert.False(t, execResult.IsError)
+
+			// 验证输出
+			assert.NotEmpty(t, execResult.Content)
+			resultText := execResult.Content[0].(*mcp.TextContent).Text
+			t.Logf("Sudo 命令输出: %s", resultText)
+
+			// 如果 sudo 密码正确，应该输出 "root"
+			if execResult.IsError == false {
+				assert.Contains(t, resultText, "root", "sudo 应该返回 root 用户")
+				t.Logf("✅ sudo 密码自动注入成功！")
+			}
+		})
+
+		sm.RemoveSession(session.ID)
+	})
 }
 
 // TestHandleSSHExecBatch tests ssh_exec_batch handler
