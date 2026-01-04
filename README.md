@@ -35,7 +35,7 @@ go build -o bin/sshmcp ./cmd/server
 {
   "mcpServers": {
     "ssh-mcp": {
-      "command": "D:\\cigar\\ssh-mcp-server\\bin\\sshmcp.exe",
+      "command": "D:\\path\\to\\ssh-mcp-server\\bin\\sshmcp.exe",
       "args": []
     }
   }
@@ -43,7 +43,7 @@ go build -o bin/sshmcp ./cmd/server
 ```
 
 > **注意：** 将 `command` 路径改为你实际编译后的可执行文件路径
-> - **Windows:** 使用 `\\` 或 `/` 作为路径分隔符，例如 `"D:/cigar/ssh-mcp-server/bin/sshmcp.exe"`
+> - **Windows:** 使用 `\\` 或 `/` 作为路径分隔符，例如 `"D:/code/ssh-mcp-server/bin/sshmcp.exe"`
 > - **macOS/Linux:** 使用绝对路径，例如 `"/Users/yourname/ssh-mcp-server/bin/sshmcp"`
 
 ### 3️⃣ 立即使用
@@ -480,7 +480,7 @@ Open your Claude Desktop configuration file and add:
 {
   "mcpServers": {
     "ssh-mcp": {
-      "command": "D:\\cigar\\ssh-mcp-server\\bin\\sshmcp.exe",
+      "command": "D:\\path\\to\\ssh-mcp-server\\bin\\sshmcp.exe",
       "args": []
     }
   }
@@ -488,7 +488,7 @@ Open your Claude Desktop configuration file and add:
 ```
 
 > **Note:** Change `command` path to your actual compiled binary path
-> - **Windows:** Use `\\` or `/` as path separator, e.g. `"D:/cigar/ssh-mcp-server/bin/sshmcp.exe"`
+> - **Windows:** Use `\\` or `/` as path separator, e.g. `"D:/code/ssh-mcp-server/bin/sshmcp.exe"`
 > - **macOS/Linux:** Use absolute path, e.g. `"/Users/yourname/ssh-mcp-server/bin/sshmcp"`
 
 ### 3️⃣ Start Using
