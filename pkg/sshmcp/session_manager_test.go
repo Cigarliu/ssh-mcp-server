@@ -234,7 +234,7 @@ func TestSessionManager_AliasExists(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	session, err := sm.CreateSession(host, 22, username, authConfig, "prod")
 	if err != nil {
@@ -273,7 +273,7 @@ func TestSessionManager_GetSessionByAlias(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	session, err := sm.CreateSession(host, 22, username, authConfig, "test-alias")
 	if err != nil {
@@ -319,7 +319,7 @@ func TestSessionManager_GetSessionByIDOrAlias(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	session, err := sm.CreateSession(host, 22, username, authConfig, "multi")
 	if err != nil {
@@ -422,7 +422,7 @@ func TestSessionManager_AliasConflict(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	// 创建第一个会话，别名为 "conflict"
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "conflict")
@@ -463,7 +463,7 @@ func TestSessionManager_AutoGenerateAlias(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	// 创建会话时不指定别名，应该自动生成
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "")
@@ -526,7 +526,7 @@ func TestSessionManager_ReconnectWithSameAlias(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	// 创建第一个会话，别名为 "rk3562"
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "rk3562")
@@ -585,7 +585,7 @@ func TestSessionManager_ReconnectUnhealthySession(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	// 创建第一个会话
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "unhealthy-test")
@@ -646,7 +646,7 @@ func TestSessionManager_IsSessionHealthy(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	// 创建会话
 	session, err := sm.CreateSession(host, 22, username, authConfig, "health-check")
@@ -694,7 +694,7 @@ func TestSessionManager_GetSessionByAliasWithHealthCheck(t *testing.T) {
 	}
 
 	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	username := getEnvOrDefault("SSH_USER", "test-user")
 
 	// 创建会话
 	session, err := sm.CreateSession(host, 22, username, authConfig, "health-alias")

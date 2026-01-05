@@ -2,6 +2,7 @@ package sshmcp
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"time"
 
@@ -42,10 +43,27 @@ func CreateSSHClient(host string, port int, username string, authConfig *AuthCon
 	}
 
 	addr := fmt.Sprintf("%s:%d", host, port)
-	client, err := ssh.Dial("tcp", addr, config)
+
+	// 建立TCP连接（手动建立以便设置 keepalive）
+	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("dial SSH server %s: %w", addr, err)
+		return nil, fmt.Errorf("dial TCP server %s: %w", addr, err)
 	}
+
+	// 启用 TCP Keepalive（层 1 保活）
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(30 * time.Second) // 30 秒发送一次 keepalive
+	}
+
+	// 在 TCP 连接上建立 SSH 连接
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("create SSH connection: %w", err)
+	}
+
+	client := ssh.NewClient(sshConn, chans, reqs)
 
 	return client, nil
 }

@@ -62,7 +62,23 @@ func (s *Server) registerTools() {
 	// 命令执行工具
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "ssh_exec",
-		Description: "执行单条命令并返回结果",
+		Description: `执行单条命令并返回结果（推荐用于大多数场景）。
+
+✅ 适用场景：
+- 一次性命令：ls、cat、grep、ps、df -h、uptime 等
+- 不需要保持上下文的独立命令
+- 批量执行独立命令：使用 ssh_exec_batch
+
+⚡ 优势：
+- 比 ssh_shell(cooked) 更高效
+- 自动获取完整输出和退出码
+- 不会卡住
+- 有超时保护
+- 支持工作目录设置（working_dir）
+
+❌ 不要使用场景：
+- 需要保持环境变量或目录状态 → 使用 ssh_shell
+- 运行交互式程序（vim、top、htop、gdb）→ 使用 ssh_shell(mode=raw)`,
 		InputSchema: sshExecSchema(),
 	}, s.handleSSHExec)
 
@@ -73,8 +89,25 @@ func (s *Server) registerTools() {
 	}, s.handleSSHExecBatch)
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_shell",
-		Description: "启动交互式 shell",
+		Name: "ssh_shell",
+		Description: `启动交互式 shell 会话。
+
+⚠️ 重要提示：
+1. 如果只是执行简单命令（ls、cat、grep、cd、ps 等），请使用 ssh_exec，更高效且不会卡住
+2. ssh_shell 用于需要保持上下文的场景（连续多个命令、环境变量、目录切换）
+
+模式选择指南：
+- mode="cooked"：仅用于简单命令（ls/cat/echo），但不如 ssh_exec 高效
+- mode="raw"：必须用于交互式程序（vim/top/htop/gdb/python/mysql），否则会卡住
+
+典型使用场景：
+✅ 需要在同一会话中连续执行多个命令并保持状态
+✅ 运行交互式程序（必须用 raw 模式）
+✅ 需要追踪当前目录变化
+
+❌ 不要用 ssh_shell 的场景：
+- 一次性命令 → 用 ssh_exec
+- 批量独立命令 → 用 ssh_exec_batch`,
 		InputSchema: sshShellSchema(),
 	}, s.handleSSHShell)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cigar/sshmcp/pkg/sshmcp"
@@ -354,7 +355,7 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	}
 
 	// 使用配置创建 Shell
-	_, err = session.CreateShellWithConfig(term, rows, cols, config)
+	shellSession, err := session.CreateShellWithConfig(term, rows, cols, config)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to create shell: %v", err)}},
@@ -363,15 +364,78 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	}
 
 	// 如果指定了工作目录，切换到该目录
-	var extraMsg string
+	var workingDirMsg string
 	if workingDir != "" {
-		// 使用 cd 命令切换目录
-		session.ShellSession.WriteInput(fmt.Sprintf("cd %s", workingDir))
-		extraMsg = fmt.Sprintf("\nWorking directory set to: %s", workingDir)
+		shellSession.WriteInput(fmt.Sprintf("cd %s\n", workingDir))
+		workingDirMsg = fmt.Sprintf("- 初始目录: %s\n", workingDir)
 	}
 
+	// 获取会话状态
+	status := shellSession.GetStatus()
+
+	// ⚡ 立即返回，不等待输出（异步模式）
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Interactive shell started for session %s%s\nUse ssh_write_input to send commands and ssh_read_output to receive responses", sessionID, extraMsg)}},
+		Content: []mcp.Content{&mcp.TextContent{
+			Text: fmt.Sprintf(`✅ Shell 会话已启动（后台运行模式）
+
+📋 会话信息：
+- 会话 ID: %s
+- 模式: %s
+- 终端: %dx%d
+- ANSI 模式: %s
+%s
+💾 后台缓冲区：
+- 容量: %d 行 (~%d MB)
+- 状态: 输出持续读取中
+
+❤️ 保活机制（已启用）：
+- TCP Keepalive: 30秒间隔
+- SSH Keepalive: 30秒间隔
+- 应用层心跳: 60秒间隔
+
+🔧 后续操作指引：
+
+1️⃣ 发送命令或输入：
+   ssh_write_input(session_id="%s", input="your command")
+
+2️⃣ 读取输出（多种策略）：
+
+   a) 读取最新 N 行（推荐）：
+      ssh_read_output(session_id="%s", strategy="latest_lines", limit=20)
+
+   b) 读取所有未读输出：
+      ssh_read_output(session_id="%s", strategy="all_unread")
+
+   c) 读取最新 N 字节：
+      ssh_read_output(session_id="%s", strategy="latest_bytes", limit=4096)
+
+3️⃣ 查看会话状态：
+   ssh_shell_status(session_id="%s")
+
+4️⃣ 发送特殊字符：
+   ssh_write_input(session_id="%s", special_char="ctrl+c")  # 中断
+   ssh_write_input(session_id="%s", special_char="ctrl+d")  # EOF
+
+💡 提示：
+- 会话在后台持续运行，输出自动缓冲
+- 随时使用 ssh_read_output 读取最新输出
+- 使用 ssh_shell_status 查看详细状态
+- 如需交互式程序（vim/top/gdb），请使用 mode="raw"
+`,
+				func() string {
+					if session.Alias != "" {
+						return session.Alias
+					}
+					return sessionID
+				}(),
+				mode,
+				cols, rows,
+				ansiMode,
+				workingDirMsg,
+				status.BufferTotal,
+				status.BufferTotal / 1024,  // 估算 KB
+				sessionID, sessionID, sessionID, sessionID, sessionID, sessionID, sessionID, sessionID),
+		}},
 	}, nil, nil
 }
 
@@ -592,6 +656,37 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 		}, nil, nil
 	}
 
+	// Check if input contains newline - if so, automatically send Enter after writing
+	containsNewline := strings.Contains(input, "\n")
+	if containsNewline {
+		// Split by newline and write each part
+		lines := strings.Split(input, "\n")
+		for i, line := range lines {
+			if len(line) > 0 {
+				err = session.ShellSession.WriteInput(line)
+				if err != nil {
+					return &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Write input failed: %v", err)}},
+						IsError: true,
+					}, nil, nil
+				}
+			}
+			// Send Enter after each line except the last empty one
+			if i < len(lines)-1 || (len(lines) > 0 && lines[len(lines)-1] == "") {
+				err = session.ShellSession.WriteSpecialChars("enter")
+				if err != nil {
+					return &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Send Enter failed: %v", err)}},
+						IsError: true,
+					}, nil, nil
+				}
+			}
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Input written to shell session %s (auto-sent Enter due to newline)", sessionID)}},
+		}, nil, nil
+	}
+
 	// Otherwise write regular input
 	err = session.ShellSession.WriteInput(input)
 	if err != nil {
@@ -606,12 +701,11 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 	}, nil, nil
 }
 
-// handleSSHReadOutput handles the ssh_read_output tool
-// handleSSHReadOutput handles the ssh_read_output tool
+// handleSSHReadOutput handles the ssh_read_output tool (异步模式)
 func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	sessionID, _ := args["session_id"].(string)
-	timeoutVal, _ := args["timeout"].(float64)
-	nonBlocking, _ := args["non_blocking"].(bool)
+	strategy, _ := args["strategy"].(string)
+	limitVal, _ := args["limit"].(float64)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -632,40 +726,117 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 		}, nil, nil
 	}
 
-	var stdout, stderr string
-	if nonBlocking {
-		// Non-blocking mode: use milliseconds timeout
-		readTimeout := 100 * time.Millisecond
-		if timeoutVal > 0 {
-			readTimeout = time.Duration(timeoutVal) * time.Millisecond
-		}
-		stdout, stderr, err = session.ShellSession.ReadOutputNonBlocking(readTimeout)
-	} else {
-		// Blocking mode: use seconds timeout
-		timeout := 5 * time.Second
-		if timeoutVal > 0 {
-			timeout = time.Duration(timeoutVal) * time.Second
-		}
-		stdout, stderr, err = session.ShellSession.ReadOutput(timeout)
+	shellSession := session.ShellSession
+
+	// 获取当前状态
+	status := shellSession.GetStatus()
+
+	// 设置默认值
+	if strategy == "" {
+		strategy = "latest_lines"
 	}
 
-	if err != nil {
+	limit := 20
+	if limitVal > 0 {
+		limit = int(limitVal)
+	}
+
+	// 根据 strategy 读取数据
+	var output string
+	var lineCount int
+	var byteCount int
+
+	switch strategy {
+	case "latest_lines":
+		lines := shellSession.OutputBuffer.ReadLatestLines(limit)
+		output = strings.Join(lines, "\n")
+		lineCount = len(lines)
+		if output != "" {
+			byteCount = len(output)
+		}
+
+	case "all_unread":
+		lines := shellSession.OutputBuffer.ReadAllUnread()
+		output = strings.Join(lines, "\n")
+		lineCount = len(lines)
+		if output != "" {
+			byteCount = len(output)
+		}
+
+	case "latest_bytes":
+		output = shellSession.OutputBuffer.ReadLatestBytes(limit)
+		if output != "" {
+			byteCount = len(output)
+			lineCount = len(strings.Split(output, "\n"))
+		}
+
+	default:
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Read output failed: %v", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Invalid strategy: %s\nValid strategies: latest_lines, all_unread, latest_bytes", strategy)}},
 			IsError: true,
 		}, nil, nil
 	}
 
-	output := ""
-	if stdout != "" {
-		output += fmt.Sprintf("STDOUT:\n%s\n", stdout)
-	}
-	if stderr != "" {
-		output += fmt.Sprintf("STDERR:\n%s\n", stderr)
+	// 重新获取状态（可能已更新）
+	status = shellSession.GetStatus()
+
+	// 计算缓冲区使用率
+	bufferPercent := float64(status.BufferUsed) / float64(status.BufferTotal) * 100
+
+	// 构建返回消息
+	var result string
+	if output != "" {
+		result = fmt.Sprintf(`📄 输出读取结果
+
+读取策略: %s
+读取行数: %d
+读取字节数: %d
+剩余未读: %d 行
+
+💾 缓冲区状态：
+- 已用: %d/%d 行 (%.1f%%)
+
+--- 输出内容 ---
+%s
+--- 输出结束 ---
+
+💡 提示：
+- 如需查看更多输出，增加 limit 参数
+- 如需查看所有未读输出，使用 strategy="all_unread"
+- 查看详细状态：ssh_shell_status(session_id="%s")`,
+			strategy,
+			lineCount,
+			byteCount,
+			status.BufferUsed,
+			status.BufferUsed,
+			status.BufferTotal,
+			bufferPercent,
+			output,
+			sessionID)
+	} else {
+		result = fmt.Sprintf(`📄 输出读取结果
+
+读取策略: %s
+结果: 无新输出
+
+💾 缓冲区状态：
+- 已用: %d/%d 行 (%.1f%%)
+- 未读数据: 否
+
+💡 提示：
+- 暂无新输出，可能需要：
+  1. 等待程序产生输出
+  2. 发送命令或输入
+  3. 检查会话状态：ssh_shell_status(session_id="%s")`,
+			strategy,
+			status.BufferUsed,
+			status.BufferTotal,
+			bufferPercent,
+			sessionID)
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: output}},
+		Content: []mcp.Content{&mcp.TextContent{Text: result}},
 	}, nil, nil
 }
 
@@ -875,16 +1046,92 @@ func (s *Server) handleSSHShellStatus(ctx context.Context, req *mcp.CallToolRequ
 
 	status := session.ShellSession.GetStatus()
 
-	// 格式化输出
-	output := "Shell Status:\n"
-	output += fmt.Sprintf("  Active: %v\n", status.IsActive)
-	output += fmt.Sprintf("  Current Directory: %s\n", status.CurrentDir)
-	output += fmt.Sprintf("  Has Unread Output: %v\n", status.HasUnreadOutput)
-	output += fmt.Sprintf("  Last Read Time: %s\n", status.LastReadTime.Format(time.RFC3339))
-	output += fmt.Sprintf("  Last Write Time: %s\n", status.LastWriteTime.Format(time.RFC3339))
-	output += fmt.Sprintf("  Terminal: %s (%dx%d)\n", status.TerminalType, status.Rows, status.Cols)
-	output += fmt.Sprintf("  Mode: %s\n", status.Mode)
-	output += fmt.Sprintf("  ANSI Mode: %s\n", status.ANSIMode)
+	// 计算缓冲区使用百分比
+	bufferPercent := 0.0
+	if status.BufferTotal > 0 {
+		bufferPercent = float64(status.BufferUsed) / float64(status.BufferTotal) * 100
+	}
+
+	// 计算距离上次保活的时间
+	lastKeepalive := "未记录"
+	if !status.LastKeepAlive.IsZero() {
+		lastKeepalive = fmt.Sprintf("%s 前", formatDuration(time.Since(status.LastKeepAlive)))
+	}
+
+	// 格式化输出（异步模式增强版）
+	output := "🔍 Shell 会话状态\n\n"
+
+	// === 基本信息 ===
+	output += "📋 基本信息:\n"
+	output += fmt.Sprintf("  会话 ID: %s\n", sessionID)
+	if session.Alias != "" {
+		output += fmt.Sprintf("  会话别名: %s\n", session.Alias)
+	}
+	output += fmt.Sprintf("  状态: %s\n", getStatusEmoji(status.IsActive))
+	output += fmt.Sprintf("  当前目录: %s\n", status.CurrentDir)
+	output += fmt.Sprintf("  终端: %s (%dx%d)\n", status.TerminalType, status.Rows, status.Cols)
+	output += fmt.Sprintf("  模式: %s\n", status.Mode)
+	output += fmt.Sprintf("  ANSI 处理: %s\n", status.ANSIMode)
+	output += "\n"
+
+	// === 活动时间 ===
+	output += "⏱️ 活动时间:\n"
+	output += fmt.Sprintf("  最后读取: %s\n", formatTimeAgo(status.LastReadTime))
+	output += fmt.Sprintf("  最后写入: %s\n", formatTimeAgo(status.LastWriteTime))
+	output += fmt.Sprintf("  会话时长: %s\n", formatDuration(time.Since(session.CreatedAt)))
+	output += "\n"
+
+	// === 缓冲区状态 ===
+	output += "💾 后台缓冲区:\n"
+	output += fmt.Sprintf("  使用量: %d / %d 行 (%.1f%%)\n", status.BufferUsed, status.BufferTotal, bufferPercent)
+	if status.BufferUsed > 0 {
+		// 估算缓冲区大小（假设平均每行 100 字节）
+		estimatedSize := float64(status.BufferUsed) * 100 / 1024 / 1024
+		output += fmt.Sprintf("  估算大小: ~%.2f MB\n", estimatedSize)
+	}
+
+	// 缓冲区健康度提示
+	if bufferPercent > 90 {
+		output += "  ⚠️ 警告: 缓冲区接近满载，建议尽快读取或清空\n"
+	} else if bufferPercent > 70 {
+		output += "  ⚡ 提示: 缓冲区使用较高，定期读取可避免数据丢失\n"
+	} else if status.BufferUsed == 0 {
+		output += "  ℹ️ 缓冲区为空，使用 ssh_write_input 发送命令后使用 ssh_read_output 读取\n"
+	} else {
+		output += "  ✅ 缓冲区状态正常\n"
+	}
+	output += "\n"
+
+	// === 保活状态 ===
+	output += "❤️ 保活机制:\n"
+	output += fmt.Sprintf("  TCP Keepalive: 启用 (30秒间隔)\n")
+	output += fmt.Sprintf("  SSH Keepalive: 启用 (30秒间隔)\n")
+	output += fmt.Sprintf("  应用层心跳: 启用 (60秒间隔)\n")
+	output += fmt.Sprintf("  上次成功: %s\n", lastKeepalive)
+
+	// 保活健康度提示
+	if status.KeepAliveFails > 0 {
+		output += fmt.Sprintf("  ⚠️ 连续失败: %d 次\n", status.KeepAliveFails)
+		if status.KeepAliveFails >= 3 {
+			output += "  🚨 严重: 会话可能已断开，建议重新连接\n"
+		} else {
+			output += "  ⚡ 提示: 检测到网络不稳定，监控中...\n"
+		}
+	} else {
+		output += "  ✅ 保活状态正常\n"
+	}
+	output += "\n"
+
+	// === 推荐操作 ===
+	output += "🎯 推荐操作:\n"
+	if !status.IsActive {
+		output += "  ❌ 会话已断开，请使用 ssh_disconnect 断开后重新连接\n"
+	} else if status.BufferUsed > 0 {
+		output += fmt.Sprintf("  📖 读取输出: ssh_read_output(session_id=\"%s\", strategy=\"latest_lines\", limit=20)\n", sessionID)
+	}
+	if status.LastWriteTime.IsZero() || time.Since(status.LastWriteTime) > 5*time.Minute {
+		output += fmt.Sprintf("  ⌨️ 发送命令: ssh_write_input(session_id=\"%s\", input=\"your_command\")\n", sessionID)
+	}
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: output}},
@@ -967,4 +1214,69 @@ func (s *Server) handleSSHHistory(ctx context.Context, req *mcp.CallToolRequest,
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: output}},
 	}, nil, nil
+}
+
+// Helper functions for enhanced status display
+
+// getStatusEmoji returns a status indicator with emoji
+func getStatusEmoji(isActive bool) string {
+	if isActive {
+		return "✅ 活动"
+	}
+	return "❌ 未活动"
+}
+
+// formatTimeAgo formats a time as "X time ago" or "never"
+func formatTimeAgo(t time.Time) string {
+	if t.IsZero() {
+		return "从未"
+	}
+	return formatDuration(time.Since(t)) + " 前"
+}
+
+// formatDuration formats a duration in human-readable format
+func formatDuration(d time.Duration) string {
+	// Handle negative durations
+	if d < 0 {
+		d = -d
+	}
+
+	// Break down into components
+	seconds := int(d.Seconds())
+	minutes := seconds / 60
+	seconds = seconds % 60
+	hours := minutes / 60
+	minutes = minutes % 60
+	days := hours / 24
+	hours = hours % 24
+
+	// Build human-readable string
+	var parts []string
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%d天", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%d小时", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%d分钟", minutes))
+	}
+	if seconds > 0 || len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%d秒", seconds))
+	}
+
+	// Join components (max 2 for brevity)
+	if len(parts) > 2 {
+		parts = parts[:2]
+	}
+
+	result := ""
+	for i, part := range parts {
+		if i > 0 {
+			result += " "
+		}
+		result += part
+	}
+
+	return result
 }

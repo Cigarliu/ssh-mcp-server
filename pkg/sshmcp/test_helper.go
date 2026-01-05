@@ -53,7 +53,7 @@ func getTestPort() int {
 func getTestUser() string {
 	user := os.Getenv("TEST_SSH_USER")
 	if user == "" {
-		return "root"
+		return "test-user"
 	}
 	return user
 }
@@ -62,7 +62,7 @@ func getTestUser() string {
 func getTestPassword() string {
 	pass := os.Getenv("TEST_SSH_PASSWORD")
 	if pass == "" {
-		pass = "root"
+		pass = "[REDACTED_PASSWORD]"
 	}
 	return pass
 }
