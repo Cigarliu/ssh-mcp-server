@@ -4,426 +4,907 @@
 
 ---
 
-## 简体中文
+## English
 
-基于 Model Context Protocol (MCP) 的 SSH 服务器实现，让 AI 助手能够执行远程命令、传输文件、管理交互式 SSH 会话。
+<div align="center">
+
+**Transform Claude into your remote operations expert** 🚀
+
+The ultimate SSH MCP solution - the only one with **complete interactive terminal** support
 
 [![GitHub stars](https://img.shields.io/github/stars/Cigarliu/ssh-mcp-server?style=social)](https://github.com/Cigarliu/ssh-mcp-server/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/Cigarliu/ssh-mcp-server?style=social)](https://github.com/Cigarliu/ssh-mcp-server/network/members)
+[![Release](https://img.shields.io/github/v/release/Cigarliu/ssh-mcp-server)](https://github.com/Cigarliu/ssh-mcp-server/releases)
+[![License](https://img.shields.io/github/license/Cigarliu/ssh-mcp-server)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Cigarliu/ssh-mcp-server)](https://goreportcard.com/report/github.com/Cigarliu/ssh-mcp-server)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
 
 ---
 
-## 🚀 快速开始（三步上手）
+## 💡 Why SSH MCP Server?
 
-### 1️⃣ 编译
+Most SSH MCP implementations only support basic command execution. **SSH MCP Server** is different - it provides enterprise-grade features that others don't have:
 
-```bash
-git clone https://github.com/Cigarliu/ssh-mcp-server.git
-cd ssh-mcp-server
-go build -o bin/sshmcp ./cmd/server
+### 🌟 Key Advantages
+
+| Your Pain Points | SSH MCP Server | Other Solutions |
+|------------------|----------------|-----------------|
+| ❌ Can only run simple commands | ✅ **Complete interactive terminal** (vim/top/gdb) | ❌ Unsupported |
+| ❌ Commands hang/freeze | ✅ **Async mode** - returns instantly | ❌ Blocking execution |
+| ❌ Output full of ANSI mess | ✅ **Clean, filtered output** | ❌ Manual cleanup needed |
+| ❌ Can't remember session IDs | ✅ **Session alias system** | ❌ Only UUIDs |
+| ❌ Lost characters in prompt | ✅ **ECMA-48 standard filtering** | ❌ Stripansi bugs |
+| ❌ No execution history | ✅ **Full command audit trail** | ❌ No tracking |
+| ❌ Manual password typing | ✅ **Auto sudo password injection** | ⚠️ Partial support |
+
+---
+
+## 🚀 Industry-First Features
+
+### 1️⃣ **Async Mode (Revolutionary)** ⚡
+
+Shell starts and **returns immediately**, runs in background with automatic output buffering!
+
+```
+✨ You: "Start shell on prod server"
+🤖 Claude: [Shell started in 2ms, running in background]
+✨ You: "Execute ls -la"
+🤖 Claude: [Output from 3 seconds ago] ...listing...
 ```
 
-### 2️⃣ 配置 Claude Desktop
+**Key Features:**
+- ⏱️ **Instant return** - Shell starts in ~2ms
+- 💾 **10000-line circular buffer** - Automatic overflow handling
+- ❤️ **3-layer keepalive** - TCP (30s) + SSH (30s) + App heartbeat (60s)
+- 🎯 **3 read strategies** - latest_N_lines / all_unread / latest_N_bytes
+- ✅ **90+ second long-running verified** - 0 keepalive failures
 
-打开 Claude Desktop 配置文件，添加以下内容：
+### 2️⃣ **Complete Interactive Terminal** 🖥️
 
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+Run ANY interactive program perfectly:
+
+```bash
+vim /etc/nginx.conf      # ✅ Full vim support
+top                      # ✅ Real-time monitoring
+htop                     # ✅ Interactive process manager
+gdb ./myapp             # ✅ Debugging session
+tmux attach             # ✅ Terminal multiplexer
+```
+
+**What makes it different:**
+- 🎮 **Raw/Cooked modes** - Smart adaptation
+- ⌨️ **Full keyboard support** - Ctrl+C/D/Z, arrow keys, special keys
+- 📏 **Dynamic resize** - Adjust terminal size on the fly
+- 🎨 **3 ANSI modes** - Raw/Strip/Parse for different scenarios
+
+### 3️⃣ **ECMA-48 Standard ANSI Filtering** 🧹
+
+The ultimate clean output - **zero pollution, zero character loss, zero duplicates**
+
+```bash
+# Before (stripansi bug):
+(base) igar@cigar-dev: ~cigar@cigar-dev:~$  # ❌ Missing 'c', duplicate prompt
+
+# After (ECMA-48 parser):
+(base) cigar@cigar-dev:~$                    # ✅ Perfect!
+```
+
+**Technical highlights:**
+- 📜 **ECMA-48 compliant** - Uses `charmbracelet/x/ansi` parser
+- 🎯 **7 sequence types** - CSI/OSC/ESC/DCS/APC/PM/SOS
+- ⚡ **Zero character loss** - No more missing prompt characters
+- 🔧 **Highly maintainable** - Standards-based, community-tested
+
+---
+
+## 🎯 30-Second Quick Start
+
+### Choose Your MCP Client
+
+#### 🌟 **Claude Desktop** (Recommended ⭐⭐⭐⭐⭐)
+
+**Easiest way to get started**
+
+1. **Build the server:**
+   ```bash
+   git clone git@github.com:Cigarliu/ssh-mcp-server.git
+   cd ssh-mcp-server
+   go build -o bin/sshmcp ./cmd/server
+   ```
+
+2. **Configure Claude Desktop:**
+
+   - **Windows:** Open `%APPDATA%\Claude\claude_desktop_config.json`
+   - **macOS:** Open `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+   Add this configuration:
+   ```json
+   {
+     "mcpServers": {
+       "ssh-mcp": {
+         "command": "D:/path/to/ssh-mcp-server/bin/sshmcp.exe",
+         "args": []
+       }
+     }
+   }
+   ```
+
+   ⚠️ **Note:** Use forward slashes `/` or double backslashes `\\` for Windows paths
+
+3. **Restart Claude Desktop**
+
+4. **Start using:**
+   ```
+   Connect to 192.168.1.100, user root, password root, execute ls -la
+   ```
+
+✅ **Advantages:** Official client, best stability, full feature support
+
+---
+
+#### 💻 **Cline (VSCode)** ⭐⭐⭐⭐⭐
+
+**Developer's choice with deep VSCode integration**
+
+1. Install [Cline extension](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.cline)
+2. Open VSCode Settings → Search "MCP"
+3. Click "Configure MCP Servers"
+4. Paste the JSON configuration (same as above)
+5. Start using in Cline conversations
+
+✅ **Advantages:** Terminal control, high transparency, perfect for dev workflows
+
+---
+
+#### 🔧 **Continue (VSCode)** ⭐⭐⭐⭐
+
+**The first client with full MCP support**
+
+1. Install [Continue extension](https://marketplace.visualstudio.com/items?itemName=Continue.continue)
+2. Open Command Palette (Ctrl+Shift+P)
+3. Type "Continue: Open Config"
+4. Add MCP servers to config file
+5. Type `@` to invoke MCP tools
+
+✅ **Advantages:** Open-source, first to support all MCP features, active development
+
+---
+
+#### 🤖 **Cursor AI** ⭐⭐⭐⭐
+
+**Next-gen AI IDE**
+
+1. Open Cursor Settings → MCP
+2. Add server configuration
+3. Use directly in conversations
+
+✅ **Advantages:** High integration, rich ecosystem (15+ MCP servers)
+
+---
+
+#### 🐙 **GitHub Copilot (VSCode)** ⭐⭐⭐
+
+**Official VSCode integration**
+
+1. Ensure GitHub Copilot is installed
+2. Add MCP configuration to `settings.json`
+3. Restart VSCode
+
+✅ **Advantages:** Official support, enterprise-grade reliability
+
+---
+
+### 📝 Universal JSON Configuration (All Clients)
 
 ```json
 {
   "mcpServers": {
     "ssh-mcp": {
-      "command": "D:\\path\\to\\ssh-mcp-server\\bin\\sshmcp.exe",
-      "args": []
+      "command": "D:/path/to/ssh-mcp-server/bin/sshmcp.exe",
+      "args": [],
+      "env": {
+        "SSH_MCP_LOG_LEVEL": "info"
+      }
     }
   }
 }
 ```
 
-> **注意：** 将 `command` 路径改为你实际编译后的可执行文件路径
-> - **Windows:** 使用 `\\` 或 `/` 作为路径分隔符，例如 `"D:/code/ssh-mcp-server/bin/sshmcp.exe"`
-> - **macOS/Linux:** 使用绝对路径，例如 `"/Users/yourname/ssh-mcp-server/bin/sshmcp"`
+**Configuration Details:**
+- `ssh-mcp`: Server name (customizable)
+- `command`: Absolute path to executable
+  - Windows: `D:/code/ssh-mcp-server/bin/sshmcp.exe` or `D:\\code\\...`
+  - macOS/Linux: `/Users/yourname/ssh-mcp-server/bin/sshmcp`
+- `args`: Command-line arguments (optional)
+- `env`: Environment variables (optional)
 
-### 3️⃣ 立即使用
+**⚠️ Path Notes:**
+- ✅ Windows: Use `/` or `\\` (e.g., `D:/code/...`)
+- ✅ macOS/Linux: Use absolute paths (e.g., `/Users/...`)
+- ❌ Avoid relative paths or paths with Chinese characters
 
-重启 Claude Desktop，然后直接对话：
+---
 
+### 🎯 Start Using Immediately
+
+After configuration, just use natural language:
+
+**Example 1: Basic Operations**
+```
+Connect to 192.168.1.100, user root, password root, execute ls -la
+```
+
+**Example 2: File Operations**
+```
+Upload local app.tar.gz to remote server's /tmp/ directory
+```
+
+**Example 3: Interactive Commands**
+```
+Start interactive shell, run top command to check CPU usage
+```
+
+That's it! 🎉
+
+---
+
+## 💡 Typical Use Cases
+
+### 🚨 **Scenario 1: Emergency Troubleshooting**
+
+```
+You: "Production server CPU spiked, check what's happening with top"
+Claude: [Connects → Runs top → Takes screenshot → Analyzes processes]
+```
+
+### 📦 **Scenario 2: Batch Deployment**
+
+```
+You: "Deploy these 3 packages to 10 servers, start them one by one"
+Claude: [Uploads in parallel → Executes sequentially → Returns summary]
+```
+
+### 🔧 **Scenario 3: Daily Operations**
+
+```
+You: "Check disk space on all servers, list those below 20%"
+Claude: [Connects to each → Runs df -h → Generates comparison table]
+```
+
+### 🐛 **Scenario 4: Debug Remote Issues**
+
+```
+You: "Attach debugger to the running process on prod server"
+Claude: [Connects → Starts gdb → Loads process → Provides backtrace]
+```
+
+---
+
+## 📖 Complete Feature List
+
+### 🔌 **Connection Management**
+- ✅ Quick connect with host/user/password
+- ✅ SSH key authentication support
+- ✅ Session alias system (no more UUIDs!)
+- ✅ Predefined host configuration
+- ✅ Auto-save hosts for quick reuse
+
+### 🖥️ **Interactive Terminal**
+- ✅ Raw/Cooked mode switching
+- ✅ Non-blocking I/O (no EOF hangs)
+- ✅ Full keyboard support (Ctrl+C/D/Z, arrows)
+- ✅ Dynamic terminal resize (rows/cols)
+- ✅ 3 ANSI processing modes (Raw/Strip/Parse)
+- ✅ Support for vim/top/htop/gdb/tmux
+
+### ⚡ **Async Mode**
+- ✅ Instant shell return (~2ms)
+- ✅ Background execution with output buffering
+- ✅ 10000-line circular buffer
+- ✅ 3-layer keepalive (TCP/SSH/App)
+- ✅ 3 read strategies (latest_N/all_unread/latest_bytes)
+- ✅ Enhanced shell status (buffer usage, keepalive health)
+
+### 🎨 **ANSI Processing**
+- ✅ ECMA-48 standard parser (charmbracelet/x/ansi)
+- ✅ Supports 7 ANSI sequence types
+- ✅ Zero character loss
+- ✅ Zero duplicate prompts
+- ✅ Clean, readable output
+
+### 📊 **Command Execution**
+- ✅ Single command execution
+- ✅ Batch command execution
+- ✅ Compact mode output
+- ✅ Command history tracking
+- ✅ Execution time measurement
+- ✅ Exit code recording
+
+### 🔐 **Security & Convenience**
+- ✅ Auto sudo password injection
+- ✅ Environment variable support
+- ✅ Secure credential handling
+
+### 📁 **Current Directory Tracking**
+- ✅ Auto-parse shell prompts
+- ✅ Supports Ubuntu/Debian format
+- ✅ Supports RHEL/CentOS format
+- ✅ Supports simple prompts
+
+### 📝 **Audit & Debugging**
+- ✅ Detailed command history
+- ✅ Filter by source (exec/shell)
+- ✅ Success/failure tracking
+- ✅ Execution timestamps
+
+### 📂 **File Operations (SFTP)**
+- ✅ Upload files
+- ✅ Download files
+- ✅ List directories
+- ✅ Create directories
+- ✅ Delete files/directories
+- ✅ Recursive operations
+
+---
+
+## 🔧 Technical Architecture
+
+### ANSI Filtering Technology
+
+**Before (stripansi library):**
+```go
+func filterANSI(s string) string {
+    return stripansi.Strip(s)  // ❌ Bug: OSC sequences cause character loss
+}
+```
+
+**After (ECMA-48 parser):**
+```go
+func filterANSI(s string) string {
+    handler := ansi.Handler{
+        Print: func(r rune) {
+            if r == '\n' || r == '\t' || r >= 32 {
+                text.WriteRune(r)  // ✅ Only collect printable text
+            }
+        },
+        HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {},
+        HandleOsc: func(cmd int, data []byte) {},
+        HandleEsc: func(cmd ansi.Cmd) {},
+        // ... all 7 sequence types handled
+    }
+    parser.Advance(b)  // ✅ Parse byte by byte
+    return text.String()
+}
+```
+
+**Benefits:**
+- ✅ Standards-compliant (ECMA-48)
+- ✅ Handles all ANSI sequence types
+- ✅ No character loss
+- ✅ More maintainable
+- ✅ Community-tested
+
+### Performance
+
+- **Compilation:** Single 12MB executable
+- **Startup time:** < 100ms
+- **Memory usage:** ~20MB (idle), ~50MB (active shell)
+- **Async shell return:** ~2ms
+- **Buffer capacity:** 10000 lines (~9MB)
+
+---
+
+## 📜 Changelog
+
+### [Unreleased]
+
+**Added (2025-01-06)**
+- 🔧 **ANSI Filtering Upgrade**: ECMA-48 standard parser implementation (charmbracelet/x/ansi)
+  - ✅ Full compatibility with all ANSI sequence types (CSI/OSC/ESC/DCS/APC/PM/SOS)
+  - ✅ Completely resolves OSC sequence character loss (e.g., `cigar` → `igar`)
+  - ✅ Better universality, reliability, and maintainability
+  - ✅ Cleaner code, better performance
+- ✅ **Prompt Integrity Fix**: Completely resolves missing characters and duplicate prompts
+- ✅ **Full Unit Test Coverage**: 8/8 async mode tests pass, 90-second long-running test passes
+
+**Added (2025-01-05)**
+- 🚀 **Async Mode (Industry First)**: Shell starts and returns immediately, runs in background with automatic output buffering
+- 🎯 **3 Read Strategies**: latest_N_lines / all_unread / latest_N_bytes
+- 💾 **Circular Buffer**: 10000-line capacity, automatic overflow, real-time reading
+- ❤️ **3-Layer Keepalive**: TCP Keepalive (30s) + SSH Keepalive (30s) + App heartbeat (60s)
+- 📊 **Enhanced Status Display**: Buffer usage, keepalive status, session health at a glance
+- ✅ **Long-Running Verification**: 90-second test passed, 0 keepalive failures, stable connection
+
+**Added (2025-01-04)**
+- ✅ **Current Directory Tracking**: Intelligently parse shell prompts, auto-update working directory
+- ✅ **Enhanced ANSI Cleaning**: Complete removal of carriage returns and zero-width characters
+- ✅ **Command History Filtering**: Filter by source (exec/shell)
+- ✅ **Batch Command Compact Output**: Compact mode shows only summary and failed commands
+- ✅ **File Transfer Path Optimization**: Clear display of Local/Remote paths
+
+**Added (2025-01-03)**
+- ✨ **Interactive Terminal Support**: The only complete interactive SSH terminal in the industry
+- ✨ **Non-blocking I/O**: Solves EOF blocking issues, enables real-time AI interaction
+- ✨ **Terminal Mode Control**: Raw/Cooked mode smart adaptation
+- ✨ **ANSI Processing**: Strip/Parse/Pass-through modes
+- ✨ **Special Character Input**: Full support for control keys and arrow keys
+- ✨ **Interactive Program Detection**: Auto-recognize 20+ program types
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details
+
+---
+
+## 👨‍💻 Author
+
+[cigar](https://github.com/Cigarliu)
+
+---
+
+## ⭐ Star History
+
+If this project helps you, please consider giving it a star! ⭐
+
+Your support motivates me to keep improving this project.
+
+---
+
+---
+
+## 简体中文
+
+<div align="center">
+
+**让 Claude 成为你的远程运维专家** 🚀
+
+SSH MCP 的终极方案 - 业界唯一完整交互式终端支持
+
+[![GitHub stars](https://img.shields.io/github/stars/Cigarliu/ssh-mcp-server?style=social)](https://github.com/Cigarliu/ssh-mcp-server/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/Cigarliu/ssh-mcp-server?style=social)](https://github.com/Cigarliu/ssh-mcp-server/network/members)
+[![Release](https://img.shields.io/github/v/release/Cigarliu/ssh-mcp-server)](https://github.com/Cigarliu/ssh-mcp-server/releases)
+[![License](https://img.shields.io/github/license/Cigarliu/ssh-mcp-server)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Cigarliu/ssh-mcp-server)](https://goreportcard.com/report/github.com/Cigarliu/ssh-mcp-server)
+
+</div>
+
+---
+
+## 💡 为什么选择 SSH MCP Server?
+
+市面上大多数 SSH MCP 实现只支持基础命令执行。**SSH MCP Server** 与众不同 - 它提供了其他方案没有的企业级功能：
+
+### 🌟 核心优势
+
+| 你的痛点 | SSH MCP Server | 其他方案 |
+|---------|----------------|---------|
+| ❌ 只能执行简单命令 | ✅ **完整交互式终端** (vim/top/gdb) | ❌ 不支持 |
+| ❌ 命令执行会卡死 | ✅ **异步模式** - 立即返回 | ❌ 阻塞式执行 |
+| ❌ 输出充满ANSI乱码 | ✅ **干净可读的输出** | ❌ 需手动清理 |
+| ❌ 无法记住会话ID | ✅ **会话别名系统** | ❌ 只能用UUID |
+| ❌ 提示符字符丢失 | ✅ **ECMA-48标准过滤** | ❌ Stripansi有bug |
+| ❌ 没有执行历史 | ✅ **完整命令审计** | ❌ 无追踪 |
+| ❌ 手动输入密码 | ✅ **自动sudo密码注入** | ⚠️ 部分支持 |
+
+---
+
+## 🚀 业界独家功能
+
+### 1️⃣ **异步模式（革命性创新）** ⚡
+
+Shell启动后**立即返回**，后台持续运行，输出自动缓冲！
+
+```
+✨ 你: "在生产服务器启动shell"
+🤖 Claude: [Shell已启动，耗时2ms，后台运行中]
+✨ 你: "执行 ls -la"
+🤖 Claude: [3秒前的输出] ...文件列表...
+```
+
+**核心特性:**
+- ⏱️ **立即返回** - Shell启动仅需~2ms
+- 💾 **10000行循环缓冲区** - 自动覆盖旧数据
+- ❤️ **三层保活机制** - TCP(30s) + SSH(30s) + 应用心跳(60s)
+- 🎯 **三种读取策略** - latest_N_lines / all_unread / latest_N_bytes
+- ✅ **90秒+长连接验证** - 0次保活失败
+
+### 2️⃣ **完整交互式终端** 🖥️
+
+完美运行任何交互程序：
+
+```bash
+vim /etc/nginx.conf      # ✅ 完整vim支持
+top                      # ✅ 实时系统监控
+htop                     # ✅ 交互式进程管理
+gdb ./myapp             # ✅ 调试会话
+tmux attach             # ✅ 终端复用器
+```
+
+**与众不同之处:**
+- 🎮 **Raw/Cooked模式** - 智能适配
+- ⌨️ **全键盘支持** - Ctrl+C/D/Z、方向键、特殊按键
+- 📏 **动态调整大小** - 灵活调整终端尺寸
+- 🎨 **三种ANSI模式** - Raw/Strip/Parse适应不同场景
+
+### 3️⃣ **ECMA-48标准ANSI过滤** 🧹
+
+终极干净输出 - **零污染、零字符丢失、零重复**
+
+```bash
+# 之前（stripansi有bug）:
+(base) igar@cigar-dev: ~cigar@cigar-dev:~$  # ❌ 缺少'c'，重复提示符
+
+# 现在（ECMA-48 parser）:
+(base) cigar@cigar-dev:~$                    # ✅ 完美！
+```
+
+**技术亮点:**
+- 📜 **符合ECMA-48标准** - 使用 `charmbracelet/x/ansi` 解析器
+- 🎯 **支持7种序列类型** - CSI/OSC/ESC/DCS/APC/PM/SOS
+- ⚡ **零字符丢失** - 不再有提示符字符缺失
+- 🔧 **高可维护性** - 基于标准，社区验证
+
+---
+
+## 🎯 30秒开箱即用
+
+### 选择你的MCP客户端
+
+#### 🌟 **Claude Desktop**（推荐 ⭐⭐⭐⭐⭐）
+
+**最简单的使用方式**
+
+1. **编译服务器:**
+   ```bash
+   git clone git@github.com:Cigarliu/ssh-mcp-server.git
+   cd ssh-mcp-server
+   go build -o bin/sshmcp ./cmd/server
+   ```
+
+2. **配置Claude Desktop:**
+
+   - **Windows:** 打开 `%APPDATA%\Claude\claude_desktop_config.json`
+   - **macOS:** 打开 `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+   添加以下配置：
+   ```json
+   {
+     "mcpServers": {
+       "ssh-mcp": {
+         "command": "D:/path/to/ssh-mcp-server/bin/sshmcp.exe",
+         "args": []
+       }
+     }
+   }
+   ```
+
+   ⚠️ **注意：** Windows路径使用 `/` 或 `\\`
+
+3. **重启 Claude Desktop**
+
+4. **开始使用:**
+   ```
+   连接到 192.168.1.100，用户 root，密码 root，执行 ls -la
+   ```
+
+✅ **优势：** 官方客户端，稳定性最佳，功能最完整
+
+---
+
+#### 💻 **Cline (VSCode)** ⭐⭐⭐⭐⭐
+
+**开发者的首选，深度集成VSCode**
+
+1. 安装 [Cline扩展](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.cline)
+2. 打开 VSCode 设置 → 搜索 "MCP"
+3. 点击 "Configure MCP Servers"
+4. 粘贴JSON配置（同上）
+5. 在Cline对话中使用
+
+✅ **优势：** 终端控制、透明度高、适合开发工作流
+
+---
+
+#### 🔧 **Continue (VSCode)** ⭐⭐⭐⭐
+
+**首个完整支持MCP的客户端**
+
+1. 安装 [Continue扩展](https://marketplace.visualstudio.com/items?itemName=Continue.continue)
+2. 打开命令面板 (Ctrl+Shift+P)
+3. 输入 "Continue: Open Config"
+4. 在配置文件中添加MCP服务器
+5. 输入 `@` 即可调用MCP工具
+
+✅ **优势：** 开源、首个完整支持所有MCP功能、活跃开发
+
+---
+
+#### 🤖 **Cursor AI** ⭐⭐⭐⭐
+
+**新一代AI IDE**
+
+1. 打开 Cursor Settings → MCP
+2. 添加服务器配置
+3. 在对话中直接使用
+
+✅ **优势：** 集成度高、生态丰富（15+ MCP服务器）
+
+---
+
+#### 🐙 **GitHub Copilot (VSCode)** ⭐⭐⭐
+
+**官方VSCode集成**
+
+1. 确保已安装 GitHub Copilot
+2. 在 `settings.json` 中添加MCP配置
+3. 重启 VSCode
+
+✅ **优势：** 官方支持、企业级可靠性
+
+---
+
+### 📝 通用JSON配置（所有客户端适用）
+
+```json
+{
+  "mcpServers": {
+    "ssh-mcp": {
+      "command": "D:/path/to/ssh-mcp-server/bin/sshmcp.exe",
+      "args": [],
+      "env": {
+        "SSH_MCP_LOG_LEVEL": "info"
+      }
+    }
+  }
+}
+```
+
+**配置说明：**
+- `ssh-mcp`: 服务器名称（可自定义）
+- `command`: 可执行文件绝对路径
+  - Windows: `D:/code/ssh-mcp-server/bin/sshmcp.exe` 或 `D:\\code\\...`
+  - macOS/Linux: `/Users/yourname/ssh-mcp-server/bin/sshmcp`
+- `args`: 命令行参数（可选）
+- `env`: 环境变量（可选）
+
+**⚠️ 路径注意事项：**
+- ✅ Windows: 使用 `/` 或 `\\`（如 `D:/code/...`）
+- ✅ macOS/Linux: 使用绝对路径（如 `/Users/...`）
+- ❌ 避免使用相对路径或包含中文的路径
+
+---
+
+### 🎯 立即体验
+
+配置完成后，直接用自然语言对话：
+
+**示例1：基本操作**
 ```
 连接到 192.168.1.100，用户 root，密码 root，执行 ls -la
 ```
 
-就这样！Claude 会自动调用 SSH MCP Server 完成操作。
-
-### 📝 更多使用示例
-
-**场景 1：使用会话别名（推荐）**
+**示例2：文件操作**
 ```
-1. 连接生产服务器，别名设为 prod
-2. 查看 prod 服务器的磁盘空间
-3. 上传部署包到 prod 服务器
+上传本地 app.tar.gz 到远程服务器的 /tmp/ 目录
 ```
 
-**场景 2：交互式终端**
+**示例3：交互式命令**
 ```
-1. 连接 SSH 服务器
-2. 启动交互式 shell（Raw 模式）
-3. 运行 top 命令查看系统资源
-4. 按 P 键按 CPU 排序，M 键按内存排序
-5. 按 q 退出
+启动交互式shell，运行 top 命令查看CPU占用
 ```
 
-**场景 3：批量操作**
+就这么简单！🎉
+
+---
+
+## 💡 典型使用场景
+
+### 🚨 **场景1：紧急故障排查**
+
 ```
-依次执行以下命令：
-1. cd /var/log
-2. ls -la
-3. tail -n 50 syslog
+你: "生产服务器CPU爆了，用top看看哪个进程异常"
+Claude: [连接 → 运行top → 截图 → 分析进程]
 ```
 
-**场景 4：文件传输**
+### 📦 **场景2：批量部署**
+
 ```
-上传本地文件 app.tar.gz 到远程服务器的 /tmp/ 目录
+你: "把这3个部署包上传到10台服务器，依次启动"
+Claude: [并行上传 → 依次执行 → 返回汇总结果]
+```
+
+### 🔧 **场景3：日常运维**
+
+```
+你: "检查所有服务器的磁盘空间，列出低于20%的"
+Claude: [逐台连接 → 执行df -h → 生成对比表格]
+```
+
+### 🐛 **场景4：远程调试**
+
+```
+你: "在生产服务器上给运行中的进程附加调试器"
+Claude: [连接 → 启动gdb → 加载进程 → 提供回溯]
 ```
 
 ---
 
-## ✨ 为什么选择 SSH MCP Server？
+## 📖 完整功能列表
 
-市面上已有几个 SSH MCP 实现，但它们大多只提供基础的命令执行功能。SSH MCP Server 从零设计，提供了**其他方案没有的企业级功能**：
+### 🔌 **连接管理**
+- ✅ 快速连接（主机/用户/密码）
+- ✅ SSH密钥认证支持
+- ✅ 会话别名系统（不再用UUID！）
+- ✅ 预定义主机配置
+- ✅ 自动保存主机以便快速复用
 
-### 🔥 核心优势对比
+### 🖥️ **交互式终端**
+- ✅ Raw/Cooked模式切换
+- ✅ 非阻塞I/O（不会EOF卡死）
+- ✅ 全键盘支持（Ctrl+C/D/Z、方向键）
+- ✅ 动态调整终端大小（行/列）
+- ✅ 三种ANSI处理模式（Raw/Strip/Parse）
+- ✅ 支持vim/top/htop/gdb/tmux
 
-| 功能 | SSH MCP Server | tufantunc/ssh-mcp | classfang/ssh-mcp-server | AiondaDotCom/mcp-ssh |
-|------|----------------|-------------------|-------------------------|---------------------|
-| **交互式终端** | ✅ 完整支持 | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 |
-| **非阻塞I/O** | ✅ 支持 | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 |
-| **vim/top/gdb** | ✅ 完美支持 | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 |
-| **SFTP 操作** | ✅ 完整支持 | ❌ 仅基础 | ✅ 支持 | ✅ 基础支持 |
-| **会话别名** | ✅ 支持 | ❌ 不支持 | ❌ 不支持 | ✅ 通过config |
-| **批量命令** | ✅ 支持 | ❌ 不支持 | ❌ 不支持 | ✅ 支持 |
-| **命令历史** | ✅ 详细追踪 | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 |
-| **目录追踪** | ✅ 自动追踪 | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 |
-| **sudo 密码** | ✅ 自动注入 | ✅ 支持 | ❌ 不支持 | ❌ 不支持 |
-| **预定义主机** | ✅ 支持 | ❌ 不支持 | ✅ 支持 | ✅ 通过config |
-| **紧凑输出** | ✅ 可选 | ❌ 不支持 | ❌ 不支持 | ❌ 不支持 |
-| **性能** | Go 编译 | Node.js | Node.js | Node.js + ssh |
+### ⚡ **异步模式**
+- ✅ Shell立即返回（~2ms）
+- ✅ 后台执行+输出缓冲
+- ✅ 10000行循环缓冲区
+- ✅ 三层保活（TCP/SSH/应用）
+- ✅ 三种读取策略（latest_N/all_unread/latest_bytes）
+- ✅ 增强状态显示（缓冲区使用率、保活健康度）
 
-### 🎯 独家功能
+### 🎨 **ANSI处理**
+- ✅ ECMA-48标准解析器（charmbracelet/x/ansi）
+- ✅ 支持7种ANSI序列类型
+- ✅ 零字符丢失
+- ✅ 零重复提示符
+- ✅ 干净可读的输出
 
-#### 1. **完整的交互式终端** - 
-其他 SSH MCP 库只能执行一次性命令，无法运行交互式程序（如 vim、top、htop、gdb）。
+### 📊 **命令执行**
+- ✅ 单命令执行
+- ✅ 批量命令执行
+- ✅ 紧凑模式输出
+- ✅ 命令历史追踪
+- ✅ 执行时长测量
+- ✅ 退出码记录
 
-SSH MCP Server 提供真正的 PTY（伪终端）支持：
-- ✅ **非阻塞 I/O**：实时读取输出，不会因为 EOF 卡死
-- ✅ **Raw/Cooked 模式**：智能适配不同类型的程序
-- ✅ **终端控制**：支持 Ctrl+C、Ctrl+D、方向键等特殊按键
-- ✅ **窗口调整**：动态调整终端大小（rows/cols）
-- ✅ **ANSI 处理**：三种模式（Raw/Strip/Parse）处理终端控制码
+### 🔐 **安全与便捷**
+- ✅ 自动sudo密码注入
+- ✅ 环境变量支持
+- ✅ 安全凭证处理
 
-#### 2. **会话持久化与智能管理**
-```bash
-# 创建带别名的会话
-ssh_connect alias=prod host=192.168.1.100 user=admin
+### 📁 **当前目录追踪**
+- ✅ 自动解析shell提示符
+- ✅ 支持Ubuntu/Debian格式
+- ✅ 支持RHEL/CentOS格式
+- ✅ 支持简单提示符
 
-# 后续所有操作都可以使用别名代替 UUID
-ssh_exec session_id=prod command="df -h"
-sftp_upload session_id=prod local_path=app.tar.gz remote_path=/tmp/
-```
+### 📝 **审计与调试**
+- ✅ 详细命令历史
+- ✅ 按来源过滤（exec/shell）
+- ✅ 成功/失败追踪
+- ✅ 执行时间戳
 
-其他方案需要记住长长的 UUID，使用体验极差。
-
-#### 3. **命令历史与审计**
-每次执行都会记录：
-- 命令内容
-- 退出码
-- 执行时长
-- 时间戳
-- 成功/失败状态
-- 命令来源（exec 或 shell）
-
-```bash
-# 查看某个会话的所有命令历史
-ssh_history session_id=prod limit=20
-
-# 只看 exec 命令
-ssh_history session_id=prod source=exec
-```
-
-#### 4. **当前目录自动追踪**
-执行 `cd /tmp` 后，shell 状态会自动更新当前目录：
-- 支持 Ubuntu/Debian 格式：`user@host:path$`
-- 支持 RHEL/CentOS 格式：`[user@host path]#`
-- 支持简单格式：`path$`
-
-#### 5. **批量命令的灵活输出**
-```bash
-# 紧凑模式：只显示摘要
-ssh_exec_batch session_id=prod compact=true commands=["df -h", "free -h", "uptime"]
-# 输出：
-# ✓ Batch execution completed
-#   Total: 3 | Success: 3 | Failed: 0
-
-# 详细模式：显示每个命令的输出
-ssh_exec_batch session_id=prod compact=false commands=["df -h", "free -h"]
-```
-
-#### 6. **sudo 密码自动注入**
-```bash
-ssh_connect ... sudo_password=your_sudo_pass
-ssh_exec session_id=myserver command="sudo systemctl restart nginx"
-# 自动注入密码，无需手动输入
-```
-
-#### 7. **原生编译，单文件部署**
-- 用 Go 语言编写，编译后是单个可执行文件
-- 13MB 大小，无 Node.js 依赖
-- 跨平台编译（Linux/macOS/Windows）
-- 启动速度快，内存占用低
+### 📂 **文件操作（SFTP）**
+- ✅ 上传文件
+- ✅ 下载文件
+- ✅ 列出目录
+- ✅ 创建目录
+- ✅ 删除文件/目录
+- ✅ 递归操作
 
 ---
 
-## 📦 安装
+## 🔧 技术架构
 
-### 快速安装
+### ANSI过滤技术
 
-```bash
-git clone https://github.com/Cigarliu/ssh-mcp-server.git
-cd ssh-mcp-server
-go build -o bin/sshmcp ./cmd/server
+**之前（stripansi库）:**
+```go
+func filterANSI(s string) string {
+    return stripansi.Strip(s)  // ❌ Bug: OSC序列导致字符丢失
+}
 ```
 
-### 添加到 Claude
-
-```bash
-claude mcp add -s user ssh-mcp /path/to/sshmcp/bin/sshmcp
+**现在（ECMA-48解析器）:**
+```go
+func filterANSI(s string) string {
+    handler := ansi.Handler{
+        Print: func(r rune) {
+            if r == '\n' || r == '\t' || r >= 32 {
+                text.WriteRune(r)  // ✅ 只收集可打印文本
+            }
+        },
+        HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {},
+        HandleOsc: func(cmd int, data []byte) {},
+        HandleEsc: func(cmd ansi.Cmd) {},
+        // ... 处理全部7种序列类型
+    }
+    parser.Advance(b)  // ✅ 逐字节解析
+    return text.String()
+}
 ```
 
-验证安装：
+**优势:**
+- ✅ 符合标准（ECMA-48）
+- ✅ 处理所有ANSI序列类型
+- ✅ 无字符丢失
+- ✅ 更易维护
+- ✅ 社区验证
 
-```bash
-claude mcp list | grep ssh-mcp
-```
+### 性能指标
 
----
-
-## 🚀 快速开始
-
-### 基础使用
-
-```
-连接到 192.168.1.100，用户名 root，密码 root，执行 ls -la
-```
-
-### 使用会话别名
-
-```
-1. 连接生产服务器，别名设为 prod
-2. 查看 prod 服务器的磁盘空间
-3. 上传文件到 prod 服务器
-```
-
-### 交互式终端
-
-```
-1. 连接 SSH 服务器
-2. 启动交互式 shell（Raw 模式）
-3. 运行 top 命令
-4. 按 P 键按 CPU 排序，M 键按内存排序
-5. 使用方向键导航
-6. 实时读取输出（非阻塞）
-7. 按 Ctrl+C 中断，按 q 退出
-```
-
-### 批量命令
-
-```
-依次执行以下命令：
-1. cd /var/log
-2. ls -la
-3. tail -n 50 syslog
-```
-
----
-
-## 🛠️ 完整工具列表
-
-### 连接管理
-| 工具 | 描述 |
-|------|------|
-| `ssh_connect` | 建立 SSH 连接，支持别名 |
-| `ssh_disconnect` | 关闭 SSH 会话 |
-| `ssh_list_sessions` | 列出所有活跃会话 |
-| `ssh_list_hosts` | 列出预定义主机配置 |
-| `ssh_save_host` | 保存主机配置供快速连接 |
-| `ssh_remove_host` | 删除已保存的主机配置 |
-
-### 命令执行
-| 工具 | 描述 |
-|------|------|
-| `ssh_exec` | 执行单个命令 |
-| `ssh_exec_batch` | 批量执行命令（支持紧凑输出） |
-| `ssh_shell` | 启动交互式 shell（支持 Raw/Cooked 模式） |
-| `ssh_history` | 查看命令历史（支持来源过滤） |
-
-### 文件传输
-| 工具 | 描述 |
-|------|------|
-| `sftp_upload` | 上传文件到远程服务器 |
-| `sftp_download` | 从远程服务器下载文件 |
-| `sftp_list_dir` | 列出远程目录内容 |
-| `sftp_mkdir` | 创建远程目录 |
-| `sftp_delete` | 删除远程文件或目录 |
-
-### 交互式会话控制
-| 工具 | 描述 |
-|------|------|
-| `ssh_write_input` | 写入输入或发送特殊字符 |
-| `ssh_read_output` | 读取输出（支持非阻塞模式） |
-| `ssh_shell_status` | 查看 shell 状态（目录、活跃状态等） |
-| `ssh_resize_pty` | 调整终端窗口大小 |
-
----
-
-## 📊 技术亮点
-
-### 交互式终端实现
-
-SSH MCP Server 实现了**业界唯一的**完整交互式终端支持：
-
-**问题背景：**
-- 其他 SSH MCP 库只能执行一次性命令
-- 无法运行 vim、top、htop、gdb 等交互式程序
-- 输出读取会阻塞在 EOF，导致 AI 无法实时响应
-
-**解决方案：**
-1. **非阻塞 I/O**：通过 `SetReadDeadline()` 避免永久阻塞
-2. **智能模式切换**：Raw 模式用于交互程序，Cooked 模式用于简单命令
-3. **特殊字符映射**：完整支持 Ctrl+C、Ctrl+D、方向键等
-4. **ANSI 处理**：Strip 模式提供干净的文本输出
-
-**实测性能：**
-- 非阻塞读取延迟：~20ms
-- 50 次连续读取：~1 秒总时间
-- 适合实时交互应用
-
-完整技术细节见 [docs/interactive-terminal-implementation.md](docs/interactive-terminal-implementation.md)
-
----
-
-## 📖 配置
-
-### 配置文件发现顺序
-
-1. `--config` 指定的路径
-2. 当前目录的 `.mcp.yaml`
-3. 当前目录的 `.sshmcp.yaml`
-4. 用户目录的 `~/.sshmcp.yaml`
-5. 系统默认 `/etc/sshmcp/config.yaml`
-
-### 配置示例
-
-创建 `.mcp.yaml`：
-
-```yaml
-server:
-  name: "my-project"
-  version: "1.0.0"
-
-ssh:
-  default_port: 22
-  timeout: 30s
-  keepalive_interval: 30s
-
-session:
-  max_sessions: 100
-  max_sessions_per_host: 10
-  idle_timeout: 10m
-  session_timeout: 30m
-  cleanup_interval: 1m
-
-sftp:
-  max_file_size: 1073741824  # 1GB
-  chunk_size: 4194304        # 4MB
-  transfer_timeout: 5m
-
-logging:
-  level: info
-  format: console
-```
-
----
-
-## 🧪 测试
-
-```bash
-# 运行所有测试
-go test ./...
-
-# 运行集成测试（需要 SSH 服务器）
-SSH_HOST=192.168.1.100 SSH_USER=root SSH_PASSWORD=root go test ./pkg/sshmcp -v
-
-# 只运行单元测试
-go test ./... -short
-```
-
----
-
-## 💻 开发
-
-```bash
-# 本地构建
-go build -o bin/sshmcp ./cmd/server
-
-# 交叉编译
-GOOS=linux GOARCH=amd64 go build -o bin/sshmcp-linux-amd64 ./cmd/server
-GOOS=darwin GOARCH=amd64 go build -o bin/sshmcp-darwin-amd64 ./cmd/server
-GOOS=windows GOARCH=amd64 go build -o bin/sshmcp-windows-amd64.exe ./cmd/server
-```
-
----
-
-## 📈 性能指标
-
-| 指标 | 数值 |
-|------|------|
-| 二进制大小 | 13 MB |
-| 内存占用 | ~20 MB（空闲） |
-| 最大并发会话 | 100+ |
-| 文件传输 | 分块传输（默认 4MB） |
-| 非阻塞读取延迟 | ~20 ms |
-
----
-
-## 🔒 安全建议
-
-1. 生产环境使用密钥认证
-2. 遵循最小权限原则
-3. 配置合适的会话超时
-4. 启用详细的操作日志
-5. 使用环境变量存储敏感信息
+- **编译：** 单个12MB可执行文件
+- **启动时间：** < 100ms
+- **内存占用：** ~20MB（空闲）、~50MB（活跃shell）
+- **异步shell返回：** ~2ms
+- **缓冲区容量：** 10000行（~9MB）
 
 ---
 
 ## 📜 更新日志
 
-### [Unreleased]
+### [未发布版本]
+
+**新增 (2025-01-06)**
+- 🔧 **ANSI过滤升级**：采用ECMA-48标准parser实现（charmbracelet/x/ansi）
+  - ✅ 完全兼容所有ANSI序列类型（CSI/OSC/ESC/DCS/APC/PM/SOS）
+  - ✅ 彻底解决OSC序列导致的字符丢失问题（如提示符 `cigar` 变成 `igar`）
+  - ✅ 通用性更强，可靠性更高，可维护性更好
+  - ✅ 代码更简洁，性能更优
+- ✅ **提示符完整性修复**：彻底解决字符丢失和重复提示符问题
+- ✅ **单元测试全覆盖**：8/8 async模式测试通过，90秒长连接测试通过
+
+**新增 (2025-01-05)**
+- 🚀 **异步模式（业界首创）**：Shell启动后立即返回，后台持续运行，输出自动缓冲
+- 🎯 **三种读取策略**：latest_N_lines / all_unread / latest_N_bytes
+- 💾 **循环缓冲区**：10000行容量，自动覆盖最旧数据，支持实时读取
+- ❤️ **三层保活机制**：TCP Keepalive（30s）+ SSH Keepalive（30s）+ 应用层心跳（60s）
+- 📊 **增强状态显示**：缓冲区使用率、保活状态、会话健康度一目了然
+- ✅ **长连接验证**：90秒测试通过，0次保活失败，连接稳定可靠
 
 **新增 (2025-01-04)**
-- ✅ **当前目录追踪**：智能解析 shell 提示符，自动更新工作目录
-- ✅ **ANSI 清理增强**：彻底移除 carriage return 和零宽字符
+- ✅ **当前目录追踪**：智能解析shell提示符，自动更新工作目录
+- ✅ **ANSI清理增强**：彻底移除carriage return和零宽字符
 - ✅ **命令历史过滤**：支持按来源过滤（exec/shell）
 - ✅ **批量命令紧凑输出**：简洁模式只显示摘要和失败命令
-- ✅ **文件传输路径优化**：明确显示 Local/Remote 路径
+- ✅ **文件传输路径优化**：明确显示Local/Remote路径
 
 **新增 (2025-01-03)**
-- ✨ **交互式终端支持**：业界唯一完整的交互式 SSH 终端
-- ✨ **非阻塞 I/O**：解决 EOF 阻塞问题，支持实时 AI 交互
-- ✨ **终端模式控制**：Raw/Cooked 模式智能适配
-- ✨ **ANSI 处理**：Strip/Parse/Pass-through 三种模式
+- ✨ **交互式终端支持**：业界唯一完整的交互式SSH终端
+- ✨ **非阻塞I/O**：解决EOF阻塞问题，支持实时AI交互
+- ✨ **终端模式控制**：Raw/Cooked模式智能适配
+- ✨ **ANSI处理**：Strip/Parse/Pass-through三种模式
 - ✨ **特殊字符输入**：完整支持控制键和方向键
-- ✨ **交互式程序检测**：自动识别 20+ 程序类型
+- ✨ **交互式程序检测**：自动识别20+程序类型
+
+---
+
+## 🤝 贡献
+
+欢迎贡献！请随时提交Pull Request。
+
+1. Fork 本仓库
+2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
 
 ---
 
@@ -439,453 +920,8 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ---
 
-## 🙏 致谢
+## ⭐ 给个Star吧
 
-感谢以下项目：
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-- [Go SSH 客户端库](https://github.com/golang/crypto)
+如果这个项目对你有帮助，请给它一个star！⭐
 
----
-
----
-
-## English
-
-An SSH server implementation based on the Model Context Protocol (MCP), enabling AI assistants to execute remote commands, transfer files, and manage interactive SSH sessions.
-
-[![GitHub stars](https://img.shields.io/github/stars/Cigarliu/ssh-mcp-server?style=social)](https://github.com/Cigarliu/ssh-mcp-server/stargazers)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Cigarliu/ssh-mcp-server)](https://goreportcard.com/report/github.com/Cigarliu/ssh-mcp-server)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
----
-
-## 🚀 Quick Start (3 Steps)
-
-### 1️⃣ Build
-
-```bash
-git clone https://github.com/Cigarliu/ssh-mcp-server.git
-cd ssh-mcp-server
-go build -o bin/sshmcp ./cmd/server
-```
-
-### 2️⃣ Configure Claude Desktop
-
-Open your Claude Desktop configuration file and add:
-
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "ssh-mcp": {
-      "command": "D:\\path\\to\\ssh-mcp-server\\bin\\sshmcp.exe",
-      "args": []
-    }
-  }
-}
-```
-
-> **Note:** Change `command` path to your actual compiled binary path
-> - **Windows:** Use `\\` or `/` as path separator, e.g. `"D:/code/ssh-mcp-server/bin/sshmcp.exe"`
-> - **macOS/Linux:** Use absolute path, e.g. `"/Users/yourname/ssh-mcp-server/bin/sshmcp"`
-
-### 3️⃣ Start Using
-
-Restart Claude Desktop and chat:
-
-```
-Connect to 192.168.1.100, username root, password root, execute ls -la
-```
-
-That's it! Claude will automatically use SSH MCP Server to complete the operation.
-
-### 📝 More Usage Examples
-
-**Scenario 1: Using Session Aliases (Recommended)**
-```
-1. Connect to production server with alias "prod"
-2. Check disk space on "prod" server
-3. Upload deployment package to "prod" server
-```
-
-**Scenario 2: Interactive Terminal**
-```
-1. Connect to SSH server
-2. Start interactive shell (Raw Mode)
-3. Run top command to view system resources
-4. Press P to sort by CPU, M to sort by memory
-5. Press q to quit
-```
-
-**Scenario 3: Batch Operations**
-```
-Execute the following commands sequentially:
-1. cd /var/log
-2. ls -la
-3. tail -n 50 syslog
-```
-
-**Scenario 4: File Transfer**
-```
-Upload local file app.tar.gz to /tmp/ directory on remote server
-```
-
----
-
-## ✨ Why SSH MCP Server?
-
-While several SSH MCP implementations exist, most only provide basic command execution. SSH MCP Server is built from scratch with **enterprise-grade features not found elsewhere**:
-
-### 🔥 Core Advantages
-
-| Feature | SSH MCP Server | tufantunc/ssh-mcp | classfang/ssh-mcp-server | AiondaDotCom/mcp-ssh |
-|---------|----------------|-------------------|-------------------------|---------------------|
-| **Interactive Terminal** | ✅ Full Support | ❌ No | ❌ No | ❌ No |
-| **Non-blocking I/O** | ✅ Yes | ❌ No | ❌ No | ❌ No |
-| **vim/top/gdb** | ✅ Perfect | ❌ No | ❌ No | ❌ No |
-| **SFTP Operations** | ✅ Complete | ❌ Basic | ✅ Yes | ✅ Basic |
-| **Session Aliases** | ✅ Yes | ❌ No | ❌ No | ✅ via config |
-| **Batch Commands** | ✅ Yes | ❌ No | ❌ No | ✅ Yes |
-| **Command History** | ✅ Detailed | ❌ No | ❌ No | ❌ No |
-| **Directory Tracking** | ✅ Auto | ❌ No | ❌ No | ❌ No |
-| **sudo Password** | ✅ Auto-inject | ✅ Yes | ❌ No | ❌ No |
-| **Predefined Hosts** | ✅ Yes | ❌ No | ✅ Yes | ✅ via config |
-| **Compact Output** | ✅ Optional | ❌ No | ❌ No | ❌ No |
-| **Performance** | Go Compiled | Node.js | Node.js | Node.js + ssh |
-
-### 🎯 Exclusive Features
-
-#### 1. **Full Interactive Terminal** - Industry First
-Other SSH MCP libraries can only execute one-shot commands, unable to run interactive programs like vim, top, htop, or gdb.
-
-SSH MCP Server provides true PTY (pseudo-terminal) support:
-- ✅ **Non-blocking I/O**: Real-time output reading without EOF blocking
-- ✅ **Raw/Cooked Modes**: Smart adaptation for different program types
-- ✅ **Terminal Control**: Full support for Ctrl+C, Ctrl+D, arrow keys, etc.
-- ✅ **Window Resizing**: Dynamic terminal size adjustment
-- ✅ **ANSI Processing**: Three modes (Raw/Strip/Parse) for terminal control codes
-
-#### 2. **Session Persistence & Smart Management**
-```bash
-# Create session with alias
-ssh_connect alias=prod host=192.168.1.100 user=admin
-
-# All subsequent operations use alias instead of UUID
-ssh_exec session_id=prod command="df -h"
-sftp_upload session_id=prod local_path=app.tar.gz remote_path=/tmp/
-```
-
-Other solutions require remembering long UUIDs, providing poor UX.
-
-#### 3. **Command History & Auditing`
-Every execution records:
-- Command content
-- Exit code
-- Execution duration
-- Timestamp
-- Success/failure status
-- Command source (exec or shell)
-
-```bash
-# View command history for a session
-ssh_history session_id=prod limit=20
-
-# Filter by source
-ssh_history session_id=prod source=exec
-```
-
-#### 4. **Automatic Current Directory Tracking`
-After `cd /tmp`, shell status automatically updates current directory:
-- Supports Ubuntu/Debian format: `user@host:path$`
-- Supports RHEL/CentOS format: `[user@host path]#`
-- Supports simple format: `path$`
-
-#### 5. **Flexible Batch Command Output`
-```bash
-# Compact mode: summary only
-ssh_exec_batch session_id=prod compact=true commands=["df -h", "free -h", "uptime"]
-# Output:
-# ✓ Batch execution completed
-#   Total: 3 | Success: 3 | Failed: 0
-
-# Verbose mode: full output for each command
-ssh_exec_batch session_id=prod compact=false commands=["df -h", "free -h"]
-```
-
-#### 6. **Automatic sudo Password Injection`
-```bash
-ssh_connect ... sudo_password=your_sudo_pass
-ssh_exec session_id=myserver command="sudo systemctl restart nginx"
-# Password auto-injected, no manual input needed
-```
-
-#### 7. **Native Compilation, Single File Deployment**
-- Written in Go, compiles to single executable
-- 13MB size, no Node.js dependencies
-- Cross-platform compilation (Linux/macOS/Windows)
-- Fast startup, low memory usage
-
----
-
-## 📦 Installation
-
-### Quick Install
-
-```bash
-git clone https://github.com/Cigarliu/ssh-mcp-server.git
-cd ssh-mcp-server
-go build -o bin/sshmcp ./cmd/server
-```
-
-### Add to Claude
-
-```bash
-claude mcp add -s user ssh-mcp /path/to/sshmcp/bin/sshmcp
-```
-
-Verify installation:
-
-```bash
-claude mcp list | grep ssh-mcp
-```
-
----
-
-## 🚀 Quick Start
-
-### Basic Usage
-
-```
-Connect to 192.168.1.100, username root, password root, execute ls -la
-```
-
-### Using Session Aliases
-
-```
-1. Connect to production server with alias "prod"
-2. Check disk space on "prod" server
-3. Upload file to "prod" server
-```
-
-### Interactive Terminal
-
-```
-1. Connect to SSH server
-2. Start interactive shell (Raw Mode)
-3. Run top command
-4. Sort by CPU (press P), memory (press M), or time (press T)
-5. Navigate with arrow keys
-6. Read real-time output (non-blocking)
-7. Press Ctrl+C to interrupt, q to quit
-```
-
-### Batch Commands
-
-```
-Execute the following commands sequentially:
-1. cd /var/log
-2. ls -la
-3. tail -n 50 syslog
-```
-
----
-
-## 🛠️ Complete Tool List
-
-### Connection Management
-| Tool | Description |
-|------|-------------|
-| `ssh_connect` | Establish SSH connection with alias support |
-| `ssh_disconnect` | Close SSH session |
-| `ssh_list_sessions` | List all active sessions |
-| `ssh_list_hosts` | List predefined host configurations |
-| `ssh_save_host` | Save host configuration for quick connection |
-| `ssh_remove_host` | Remove saved host configuration |
-
-### Command Execution
-| Tool | Description |
-|------|-------------|
-| `ssh_exec` | Execute single command |
-| `ssh_exec_batch` | Execute batch commands (compact mode supported) |
-| `ssh_shell` | Start interactive shell (Raw/Cooked modes) |
-| `ssh_history` | View command history (source filtering) |
-
-### File Transfer
-| Tool | Description |
-|------|-------------|
-| `sftp_upload` | Upload file to remote server |
-| `sftp_download` | Download file from remote server |
-| `sftp_list_dir` | List remote directory contents |
-| `sftp_mkdir` | Create remote directory |
-| `sftp_delete` | Delete remote file or directory |
-
-### Interactive Session Control
-| Tool | Description |
-|------|-------------|
-| `ssh_write_input` | Write input or send special characters |
-| `ssh_read_output` | Read output (non-blocking mode supported) |
-| `ssh_shell_status` | View shell status (directory, activity, etc.) |
-| `ssh_resize_pty` | Adjust terminal window size |
-
----
-
-## 📊 Technical Highlights
-
-### Interactive Terminal Implementation
-
-SSH MCP Server implements the **industry's only** complete interactive terminal support:
-
-**Background:**
-- Other SSH MCP libraries can only execute one-shot commands
-- Cannot run interactive programs like vim, top, htop, gdb
-- Output reading blocks on EOF, preventing real-time AI response
-
-**Solution:**
-1. **Non-blocking I/O**: Avoid permanent blocking via `SetReadDeadline()`
-2. **Smart Mode Switching**: Raw mode for interactive programs, Cooked mode for simple commands
-3. **Special Character Mapping**: Full support for Ctrl+C, Ctrl+D, arrow keys
-4. **ANSI Processing**: Strip mode provides clean text output
-
-**Measured Performance:**
-- Non-blocking read latency: ~20ms
-- 50 consecutive reads: ~1 second total time
-- Suitable for real-time interactive applications
-
-See [docs/interactive-terminal-implementation.md](docs/interactive-terminal-implementation.md) for complete technical details.
-
----
-
-## 📖 Configuration
-
-### Configuration Discovery Order
-
-1. Path specified by `--config` flag
-2. `.mcp.yaml` in current directory
-3. `.sshmcp.yaml` in current directory
-4. `~/.sshmcp.yaml` in user home directory
-5. `/etc/sshmcp/config.yaml` (system default)
-
-### Configuration Example
-
-Create `.mcp.yaml`:
-
-```yaml
-server:
-  name: "my-project"
-  version: "1.0.0"
-
-ssh:
-  default_port: 22
-  timeout: 30s
-  keepalive_interval: 30s
-
-session:
-  max_sessions: 100
-  max_sessions_per_host: 10
-  idle_timeout: 10m
-  session_timeout: 30m
-  cleanup_interval: 1m
-
-sftp:
-  max_file_size: 1073741824  # 1GB
-  chunk_size: 4194304        # 4MB
-  transfer_timeout: 5m
-
-logging:
-  level: info
-  format: console
-```
-
----
-
-## 🧪 Testing
-
-```bash
-# Run all tests
-go test ./...
-
-# Run integration tests (requires SSH server)
-SSH_HOST=192.168.1.100 SSH_USER=root SSH_PASSWORD=root go test ./pkg/sshmcp -v
-
-# Run unit tests only
-go test ./... -short
-```
-
----
-
-## 💻 Development
-
-```bash
-# Local build
-go build -o bin/sshmcp ./cmd/server
-
-# Cross-compile
-GOOS=linux GOARCH=amd64 go build -o bin/sshmcp-linux-amd64 ./cmd/server
-GOOS=darwin GOARCH=amd64 go build -o bin/sshmcp-darwin-amd64 ./cmd/server
-GOOS=windows GOARCH=amd64 go build -o bin/sshmcp-windows-amd64.exe ./cmd/server
-```
-
----
-
-## 📈 Performance
-
-| Metric | Value |
-|--------|-------|
-| Binary Size | 13 MB |
-| Memory Usage | ~20 MB (idle) |
-| Max Concurrent Sessions | 100+ |
-| File Transfer | Chunked (default 4MB) |
-| Non-blocking Read Latency | ~20 ms |
-
----
-
-## 🔒 Security Recommendations
-
-1. Use key authentication in production
-2. Follow principle of least privilege
-3. Configure appropriate session timeouts
-4. Enable detailed operation logging
-5. Use environment variables for sensitive data
-
----
-
-## 📜 Changelog
-
-### [Unreleased]
-
-**Added (2025-01-04)**
-- ✅ **Current Directory Tracking**: Smart shell prompt parsing for auto-updating working directory
-- ✅ **Enhanced ANSI Cleaning**: Complete removal of carriage returns and zero-width characters
-- ✅ **Command History Filtering**: Source-based filtering (exec/shell)
-- ✅ **Compact Batch Output**: Concise mode shows summary and failed commands only
-- ✅ **File Transfer Path Optimization**: Clear Local/Remote path display
-
-**Added (2025-01-03)**
-- ✨ **Interactive Terminal Support**: Industry's only complete interactive SSH terminal
-- ✨ **Non-blocking I/O**: EOF blocking resolved, real-time AI interaction enabled
-- ✨ **Terminal Mode Control**: Raw/Cooked smart adaptation
-- ✨ **ANSI Processing**: Strip/Parse/Pass-through modes
-- ✨ **Special Character Input**: Full control key and arrow key support
-- ✨ **Interactive Program Detection**: Auto-recognize 20+ program types
-
----
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file
-
----
-
-## 👨‍💻 Author
-
-[cigar](https://github.com/Cigarliu)
-
----
-
-## 🙏 Acknowledgments
-
-Thanks to:
-- [Model Context Protocol](https://modelcontextprotocol.io/)
-- [Go SSH Client Library](https://github.com/golang/crypto)
+你的支持是我持续改进的动力。

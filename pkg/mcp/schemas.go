@@ -153,10 +153,25 @@ func sshShellSchema() map[string]any {
 			"default":     80,
 		},
 		"mode": map[string]any{
-			"type":        "string",
-			"description": "终端模式：cooked（逐行缓冲，适合简单命令如 ls/cat/echo）或 raw（逐字符处理，适合交互式程序如 vim/top/gdb/htop）。默认 cooked",
-			"enum":        []string{"cooked", "raw"},
-			"default":     "cooked",
+			"type": "string",
+			"description": `⚠️ 终端模式选择（重要）：
+
+📌 异步模式说明：ssh_shell 启动后会立即返回，shell 在后台持续运行。输出自动缓冲到内存（10000行），使用 ssh_read_output 读取。
+
+- "cooked"：逐行缓冲，回车后执行。仅用于简单命令（ls/cat/echo/ps/grep）。
+  ⚠️ 注意：如果是简单命令，强烈建议直接使用 ssh_exec 而不是 ssh_shell
+
+- "raw"：逐字符传递，无缓冲。必须用于交互式程序（vim/vi/nano/top/htop/gdb/python/node/mysql/psql/less/more/tmux/screen）。
+  ⚠️ 警告：运行交互式程序时如果使用 cooked 模式会卡住！
+
+默认值：cooked
+
+决策树：
+1. 是 vim/top/htop/gdb 等交互式程序？ → 用 raw
+2. 是简单的一次性命令？ → 用 ssh_exec，不要用 ssh_shell
+3. 需要连续执行多个命令并保持状态？ → 根据命令类型选择模式`,
+			"enum":    []string{"cooked", "raw"},
+			"default": "cooked",
 		},
 		"ansi_mode": map[string]any{
 			"type":        "string",
@@ -314,22 +329,32 @@ func sshWriteInputSchema() map[string]any {
 	}, []string{"session_id"})
 }
 
-// sshReadOutputSchema returns the input schema for ssh_read_output
+// sshReadOutputSchema returns the input schema for ssh_read_output (异步模式)
 func sshReadOutputSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
-			"type":        "string",
+			"type": "string",
 			"description": "会话 ID 或别名",
 		},
-		"timeout": map[string]any{
-			"type":        "integer",
-			"description": "超时时间（秒），默认 1。对于交互式程序建议使用非阻塞读取（non_blocking=true）并设置较短的超时（如 100ms）",
-			"default":     1,
+		"strategy": map[string]any{
+			"type": "string",
+			"description": `读取策略：
+- "latest_lines"：读取最新 N 行（默认，推荐）
+- "all_unread"：读取所有未读数据
+- "latest_bytes"：读取最新 N 字节
+
+推荐使用 "latest_lines" + limit=20-50 获取最新输出`,
+			"enum": []string{"latest_lines", "all_unread", "latest_bytes"},
+			"default": "latest_lines",
 		},
-		"non_blocking": map[string]any{
-			"type":        "boolean",
-			"description": "是否使用非阻塞读取模式。默认 false。启用后会在超时前返回已读取的数据，不会因等待 EOF 而阻塞。使用建议：交互式程序（htop、vim、gdb、top）必须设置为 true；简单命令（ls、cat、echo）可使用 false。配合 read_timeout=100 使用可快速响应",
-			"default":     false,
+		"limit": map[string]any{
+			"type": "integer",
+			"description": `读取限制（配合 strategy 使用）：
+- latest_lines: 读取多少行（默认 20）
+- latest_bytes: 读取多少字节（默认 4096）
+
+建议：日常使用 20-50 行，查看大量输出时可增加到 100-200`,
+			"default": 20,
 		},
 	}, []string{"session_id"})
 }

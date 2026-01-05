@@ -110,6 +110,16 @@ func (s *Session) CreateShellWithConfig(term string, rows, cols uint16, config *
 		return nil, fmt.Errorf("start shell: %w", err)
 	}
 
+	// 初始化环形缓冲区（默认 10000 行）
+	bufferSize := 10000
+	if config.BufferSize > 0 {
+		bufferSize = config.BufferSize
+	}
+
+	done := make(chan struct{})
+	heartbeatDone := make(chan struct{})
+	keepaliveDone := make(chan struct{})
+
 	shellSession := &SSHShellSession{
 		Session: session,
 		Stdin:   stdin,
@@ -122,10 +132,27 @@ func (s *Session) CreateShellWithConfig(term string, rows, cols uint16, config *
 			Rows: rows,
 			Cols: cols,
 		},
+		OutputBuffer:   NewCircularBuffer(bufferSize),
+		BufferSize:     bufferSize,
+		LastKeepAlive:  time.Now(),
+		KeepAliveFails: 0,
+		IsActive:       true,
+		done:           done,
+		heartbeatDone:  heartbeatDone,
+		keepaliveDone:  keepaliveDone,
 	}
 
 	s.ShellSession = shellSession
 	s.State = SessionStateActive
+
+	// 启动后台输出读取 goroutine
+	go shellSession.startOutputReader()
+
+	// 启动 SSH Keepalive goroutine（层 2 保活）
+	go shellSession.startSSHKeepAlive()
+
+	// 启动应用层心跳 goroutine（层 3 保活）
+	go shellSession.startApplicationHeartbeat()
 
 	return shellSession, nil
 }
@@ -266,12 +293,35 @@ func (ss *SSHShellSession) Resize(rows, cols uint16) error {
 	return err
 }
 
-// Close closes the shell session
+// Close closes the shell session and stops all goroutines
 func (ss *SSHShellSession) Close() error {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
 	var errs []error
+
+	// Stop all goroutines (only if channels are not already closed)
+	// Use select to avoid closing closed channels
+	select {
+	case <-ss.done:
+		// Already closed
+	default:
+		close(ss.done)
+	}
+
+	select {
+	case <-ss.heartbeatDone:
+		// Already closed
+	default:
+		close(ss.heartbeatDone)
+	}
+
+	select {
+	case <-ss.keepaliveDone:
+		// Already closed
+	default:
+		close(ss.keepaliveDone)
+	}
 
 	// 关闭 stdin
 	if ss.Stdin != nil {
@@ -286,6 +336,8 @@ func (ss *SSHShellSession) Close() error {
 			errs = append(errs, fmt.Errorf("close session: %w", err))
 		}
 	}
+
+	ss.IsActive = false
 
 	if len(errs) > 0 {
 		return fmt.Errorf("close shell session: %v", errs)
@@ -541,20 +593,29 @@ func (ss *SSHShellSession) GetStatus() *ShellStatus {
 	cols := ss.TerminalInfo.Cols
 	ansiMode := ss.Config.ANSIMode.String()
 	mode := ss.Config.Mode
+	isActive := ss.IsActive
+	bufferUsed := ss.OutputBuffer.GetCount()
+	bufferTotal := ss.OutputBuffer.GetCapacity()
+	lastKeepAlive := ss.LastKeepAlive
+	keepaliveFails := ss.KeepAliveFails
 
 	ss.mu.Unlock()
 
 	// 在锁外调用 IsAlive()，避免死锁
 	status := &ShellStatus{
-		IsActive:      ss.IsAlive(),
-		CurrentDir:    currentDir,
-		HasUnreadOutput: hasUnreadData,
-		LastReadTime:  lastReadTime,
-		LastWriteTime: lastWriteTime,
-		TerminalType:  terminalType,
-		Rows:          rows,
-		Cols:          cols,
-		ANSIMode:      ansiMode,
+		IsActive:        isActive && ss.IsAlive(),
+		CurrentDir:      currentDir,
+		HasUnreadOutput: hasUnreadData || bufferUsed > 0,
+		LastReadTime:    lastReadTime,
+		LastWriteTime:   lastWriteTime,
+		TerminalType:    terminalType,
+		Rows:            rows,
+		Cols:            cols,
+		ANSIMode:        ansiMode,
+		BufferUsed:      bufferUsed,
+		BufferTotal:     bufferTotal,
+		LastKeepAlive:   lastKeepAlive,
+		KeepAliveFails:  keepaliveFails,
 	}
 
 	// Convert mode to string
@@ -568,4 +629,117 @@ func (ss *SSHShellSession) GetStatus() *ShellStatus {
 	}
 
 	return status
+}
+
+// startOutputReader starts a background goroutine that reads output into the buffer
+func (ss *SSHShellSession) startOutputReader() {
+	buf := make([]byte, 4096)
+	var lineBuffer strings.Builder
+
+	for {
+		select {
+		case <-ss.done:
+			return
+		default:
+			// Set read deadline to avoid blocking forever
+			if ss.Stdout != nil {
+				n, err := ss.Stdout.Read(buf)
+				if n > 0 {
+					// Process the received data
+					data := string(buf[:n])
+
+					// Split by lines and write to buffer
+					lines := strings.Split(data, "\n")
+					for i, line := range lines {
+						if i > 0 {
+							// Complete line, write to buffer
+							ss.OutputBuffer.Write(lineBuffer.String())
+							lineBuffer.Reset()
+						}
+						if i < len(lines)-1 || len(data) > 0 && data[len(data)-1] == '\n' {
+							ss.OutputBuffer.Write(line)
+						} else {
+							// Last incomplete line, keep in buffer
+							lineBuffer.WriteString(line)
+						}
+					}
+
+					ss.LastReadTime = time.Now()
+				}
+				if err != nil {
+					// Connection closed or error
+					if err != io.EOF {
+						ss.mu.Lock()
+						ss.IsActive = false
+						ss.mu.Unlock()
+					}
+					return
+				}
+			}
+		}
+	}
+}
+
+// startSSHKeepAlive starts a goroutine that sends SSH protocol keepalive messages (层 2 保活)
+func (ss *SSHShellSession) startSSHKeepAlive() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Send SSH keepalive request
+			_, err := ss.Session.SendRequest("keepalive@openssh.com", true, nil)
+			if err != nil {
+				// Keepalive failed, increment counter
+				ss.mu.Lock()
+				ss.KeepAliveFails++
+				ss.mu.Unlock()
+
+				// If too many failures, mark as inactive
+				if ss.KeepAliveFails >= 3 {
+					ss.mu.Lock()
+					ss.IsActive = false
+					ss.mu.Unlock()
+					return
+				}
+			} else {
+				// Success, reset counter
+				ss.mu.Lock()
+				ss.KeepAliveFails = 0
+				ss.LastKeepAlive = time.Now()
+				ss.mu.Unlock()
+			}
+		case <-ss.keepaliveDone:
+			return
+		}
+	}
+}
+
+// startApplicationHeartbeat starts a goroutine that sends application-level heartbeats (层 3 保活)
+func (ss *SSHShellSession) startApplicationHeartbeat() {
+	ticker := time.NewTicker(60 * time.Second) // 1 分钟
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Send ANSI cursor save/restore (invisible to user, keeps session active)
+			ansiCmd := "\x1b[s\x1b[u" // 保存光标位置 + 立即恢复（无可见效果）
+			if err := ss.WriteInput(ansiCmd); err != nil {
+				// Failed to send heartbeat, session might be dead
+				ss.mu.Lock()
+				ss.IsActive = false
+				ss.mu.Unlock()
+				return
+			}
+		case <-ss.heartbeatDone:
+			return
+		}
+	}
+}
+
+// Done returns the done channel for the session
+func (ss *SSHShellSession) Done() <-chan struct{} {
+	return ss.done
 }

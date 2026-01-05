@@ -2,9 +2,11 @@ package sshmcp
 
 import (
 	"io"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/crypto/ssh"
 	"github.com/pkg/sftp"
 )
@@ -128,6 +130,192 @@ type SessionConfig struct {
 	AutoReconnect bool
 }
 
+// CircularBuffer is a thread-safe circular buffer for storing output lines
+type CircularBuffer struct {
+	buffer []string
+	size   int
+	head   int
+	tail   int
+	count  int
+	mu     sync.Mutex
+}
+
+// NewCircularBuffer creates a new circular buffer with specified size
+func NewCircularBuffer(size int) *CircularBuffer {
+	return &CircularBuffer{
+		buffer: make([]string, size),
+		size:   size,
+		head:   0,
+		tail:   0,
+		count:  0,
+	}
+}
+
+// Write adds a new line to the buffer (filters heartbeat and ANSI data)
+func (cb *CircularBuffer) Write(line string) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	// Filter out heartbeat data
+	if line == "\x1b[s\x1b[u" || line == "\x00" || line == "\x1b[s" || line == "\x1b[u" {
+		return
+	}
+
+	// Filter ANSI escape sequences and control characters
+	line = filterANSI(line)
+
+	// Skip empty lines after filtering
+	if len(strings.TrimSpace(line)) == 0 {
+		return
+	}
+
+	if cb.count >= cb.size {
+		// Buffer is full, overwrite oldest data
+		cb.buffer[cb.head] = line
+		cb.head = (cb.head + 1) % cb.size
+		cb.tail = (cb.tail + 1) % cb.size
+	} else {
+		cb.buffer[cb.head] = line
+		cb.head = (cb.head + 1) % cb.size
+		cb.count++
+	}
+}
+
+// ReadLatestLines reads the latest N lines from the buffer
+func (cb *CircularBuffer) ReadLatestLines(n int) []string {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if cb.count == 0 {
+		return []string{}
+	}
+
+	// Adjust n if it's larger than the count
+	if n > cb.count {
+		n = cb.count
+	}
+
+	result := make([]string, n)
+	for i := 0; i < n; i++ {
+		// Read backwards from head
+		pos := (cb.head - 1 - i + cb.size) % cb.size
+		result[n-1-i] = cb.buffer[pos]
+	}
+
+	return result
+}
+
+// ReadAllUnread reads all unread data (from tail to head)
+func (cb *CircularBuffer) ReadAllUnread() []string {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if cb.count == 0 {
+		return []string{}
+	}
+
+	result := make([]string, cb.count)
+	for i := 0; i < cb.count; i++ {
+		pos := (cb.tail + i) % cb.size
+		result[i] = cb.buffer[pos]
+	}
+
+	// Mark as read by moving tail to head
+	cb.tail = cb.head
+	cb.count = 0
+
+	return result
+}
+
+// ReadLatestBytes reads the latest N bytes from the buffer
+func (cb *CircularBuffer) ReadLatestBytes(n int) string {
+	lines := cb.ReadLatestLines(cb.count) // Read all lines
+	var result string
+	var currentSize int
+
+	// Build result from the end
+	for i := len(lines) - 1; i >= 0; i-- {
+		lineSize := len(lines[i])
+		if currentSize+lineSize > n {
+			// Would exceed limit, truncate the line
+			remaining := n - currentSize
+			if remaining > 0 {
+				result = lines[i][len(lines[i])-remaining:] + result
+			}
+			break
+		}
+		result = lines[i] + "\n" + result
+		currentSize += lineSize + 1 // +1 for newline
+	}
+
+	return result
+}
+
+// GetCount returns the current number of items in the buffer
+func (cb *CircularBuffer) GetCount() int {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	return cb.count
+}
+
+// GetCapacity returns the buffer capacity
+func (cb *CircularBuffer) GetCapacity() int {
+	return cb.size
+}
+
+// filterANSI removes ANSI escape sequences and control characters from string
+// Uses ECMA-48 compliant parser for maximum compatibility
+func filterANSI(s string) string {
+	var text strings.Builder
+
+	// Create handler with functions to process ANSI sequences
+	// Only collects printable text, ignores all control sequences
+	handler := ansi.Handler{
+		Print: func(r rune) {
+			// Only collect printable characters (newline, tab, and >= 32)
+			if r == '\n' || r == '\t' || r >= 32 {
+				text.WriteRune(r)
+			}
+		},
+		Execute: func(b byte) {
+			// Control characters - ignore
+		},
+		HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {
+			// CSI sequences - ignore (colors, cursor movement, etc.)
+		},
+		HandleEsc: func(cmd ansi.Cmd) {
+			// ESC sequences - ignore
+		},
+		HandleOsc: func(cmd int, data []byte) {
+			// OSC sequences (window title, etc.) - ignore
+		},
+		HandleDcs: func(cmd ansi.Cmd, params ansi.Params, data []byte) {
+			// DCS sequences - ignore
+		},
+		HandleApc: func(data []byte) {
+			// APC sequences - ignore
+		},
+		HandlePm: func(data []byte) {
+			// PM sequences - ignore
+		},
+		HandleSos: func(data []byte) {
+			// SOS sequences - ignore
+		},
+	}
+
+	parser := ansi.NewParser()
+	parser.SetParamsSize(32)
+	parser.SetDataSize(1024)
+	parser.SetHandler(handler)
+
+	// Parse the input byte by byte
+	for _, b := range []byte(s) {
+		parser.Advance(b)
+	}
+
+	return text.String()
+}
+
 // SSHShellSession represents an interactive shell session
 type SSHShellSession struct {
 	Session        *ssh.Session
@@ -143,6 +331,20 @@ type SSHShellSession struct {
 	LastWriteTime  time.Time
 	currentDir     string
 	hasUnreadData  bool
+
+	// Output buffer (for async mode)
+	OutputBuffer   *CircularBuffer
+	BufferSize     int
+
+	// Keepalive tracking
+	LastKeepAlive  time.Time
+	KeepAliveFails int
+	IsActive       bool
+
+	// Goroutine control
+	done           chan struct{}
+	heartbeatDone  chan struct{}
+	keepaliveDone  chan struct{}
 }
 
 // TerminalInfo represents terminal information
@@ -210,6 +412,8 @@ type ShellConfig struct {
 	WriteTimeout time.Duration
 	// Whether to auto-detect interactive programs
 	AutoDetectInteractive bool
+	// Output buffer size (number of lines to keep in circular buffer)
+	BufferSize int
 }
 
 // ShellStatus represents the current status of a shell session
@@ -224,6 +428,10 @@ type ShellStatus struct {
 	Cols          uint16    `json:"cols"`            // 终端列数
 	Mode          string    `json:"mode"`            // 终端模式 (cooked/raw)
 	ANSIMode      string    `json:"ansi_mode"`       // ANSI 处理模式
+	BufferUsed    int       `json:"buffer_used"`     // 缓冲区已使用行数
+	BufferTotal   int       `json:"buffer_total"`    // 缓冲区总容量
+	LastKeepAlive time.Time `json:"last_keepalive"`  // 最后一次 keepalive 成功时间
+	KeepAliveFails int      `json:"keepalive_fails"` // 连续 keepalive 失败次数
 }
 
 // DefaultShellConfig returns default configuration
@@ -234,6 +442,7 @@ func DefaultShellConfig() *ShellConfig {
 		ReadTimeout:           100 * time.Millisecond,
 		WriteTimeout:          5 * time.Second,
 		AutoDetectInteractive: true,
+		BufferSize:            10000, // 默认缓冲 10000 行（~1MB）
 	}
 }
 

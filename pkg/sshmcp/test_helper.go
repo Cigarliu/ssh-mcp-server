@@ -34,7 +34,7 @@ func (w *testWriter) Write(p []byte) (n int, err error) {
 func getTestHost() string {
 	host := os.Getenv("TEST_SSH_HOST")
 	if host == "" {
-		host = "192.168.68.212"
+		host = "192.168.3.7"
 	}
 	return host
 }
@@ -53,7 +53,7 @@ func getTestPort() int {
 func getTestUser() string {
 	user := os.Getenv("TEST_SSH_USER")
 	if user == "" {
-		return "root"
+		return "cigar"
 	}
 	return user
 }
@@ -62,7 +62,7 @@ func getTestUser() string {
 func getTestPassword() string {
 	pass := os.Getenv("TEST_SSH_PASSWORD")
 	if pass == "" {
-		pass = "root"
+		pass = "liuxuejia.123"
 	}
 	return pass
 }

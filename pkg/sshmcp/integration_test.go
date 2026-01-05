@@ -16,10 +16,10 @@ func TestRealSSH_Connection(t *testing.T) {
 	}
 
 	// 从环境变量读取连接信息
-	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
+	host := getEnvOrDefault("SSH_HOST", "192.168.3.7")
 	port := 22
-	username := getEnvOrDefault("SSH_USER", "root")
-	password := getEnvOrDefault("SSH_PASSWORD", "root")
+	username := getEnvOrDefault("SSH_USER", "cigar")
+	password := getEnvOrDefault("SSH_PASSWORD", "liuxuejia.123")
 
 	// 创建会话管理器
 	logger := setupTestLogger(t)
@@ -74,9 +74,9 @@ func TestRealSSH_ExecuteCommand(t *testing.T) {
 		t.Skip("跳过集成测试")
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
-	username := getEnvOrDefault("SSH_USER", "root")
-	password := getEnvOrDefault("SSH_PASSWORD", "root")
+	host := getEnvOrDefault("SSH_HOST", "192.168.3.7")
+	username := getEnvOrDefault("SSH_USER", "cigar")
+	password := getEnvOrDefault("SSH_PASSWORD", "liuxuejia.123")
 
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
@@ -145,9 +145,9 @@ func TestRealSSH_SFTP(t *testing.T) {
 		t.Skip("跳过集成测试")
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
-	username := getEnvOrDefault("SSH_USER", "root")
-	password := getEnvOrDefault("SSH_PASSWORD", "root")
+	host := getEnvOrDefault("SSH_HOST", "192.168.3.7")
+	username := getEnvOrDefault("SSH_USER", "cigar")
+	password := getEnvOrDefault("SSH_PASSWORD", "liuxuejia.123")
 
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
@@ -233,9 +233,9 @@ func TestRealSSH_InteractiveShell(t *testing.T) {
 		t.Skip("跳过集成测试")
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
-	username := getEnvOrDefault("SSH_USER", "root")
-	password := getEnvOrDefault("SSH_PASSWORD", "root")
+	host := getEnvOrDefault("SSH_HOST", "192.168.3.7")
+	username := getEnvOrDefault("SSH_USER", "cigar")
+	password := getEnvOrDefault("SSH_PASSWORD", "liuxuejia.123")
 
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
@@ -305,9 +305,9 @@ func TestRealSSH_SessionList(t *testing.T) {
 		t.Skip("跳过集成测试")
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
-	username := getEnvOrDefault("SSH_USER", "root")
-	password := getEnvOrDefault("SSH_PASSWORD", "root")
+	host := getEnvOrDefault("SSH_HOST", "192.168.3.7")
+	username := getEnvOrDefault("SSH_USER", "cigar")
+	password := getEnvOrDefault("SSH_PASSWORD", "liuxuejia.123")
 
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
@@ -378,9 +378,9 @@ func TestRealSSH_AliasFeature(t *testing.T) {
 		t.Skip("跳过集成测试")
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
-	username := getEnvOrDefault("SSH_USER", "root")
-	password := getEnvOrDefault("SSH_PASSWORD", "root")
+	host := getEnvOrDefault("SSH_HOST", "192.168.3.7")
+	username := getEnvOrDefault("SSH_USER", "cigar")
+	password := getEnvOrDefault("SSH_PASSWORD", "liuxuejia.123")
 
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
@@ -513,9 +513,9 @@ func TestRealSSH_AliasEndToEnd(t *testing.T) {
 		t.Skip("跳过集成测试")
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "192.168.68.212")
-	username := getEnvOrDefault("SSH_USER", "root")
-	password := getEnvOrDefault("SSH_PASSWORD", "root")
+	host := getEnvOrDefault("SSH_HOST", "192.168.3.7")
+	username := getEnvOrDefault("SSH_USER", "cigar")
+	password := getEnvOrDefault("SSH_PASSWORD", "liuxuejia.123")
 
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
