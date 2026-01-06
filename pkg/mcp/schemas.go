@@ -137,52 +137,15 @@ func sshShellSchema() map[string]any {
 			"type":        "string",
 			"description": "会话 ID 或别名",
 		},
-		"terminal_type": map[string]any{
-			"type":        "string",
-			"description": "终端类型，默认 xterm-256color",
-			"default":     "xterm-256color",
-		},
 		"rows": map[string]any{
 			"type":        "integer",
-			"description": "终端行数，默认 24。建议值：30 行适合 htop，40 行适合 vim/htop 并用，24 行适合大多数命令",
-			"default":     24,
+			"description": "终端行数，默认 40。建议值：40 行适合 htop/top，50 行适合 vim",
+			"default":     40,
 		},
 		"cols": map[string]any{
 			"type":        "integer",
-			"description": "终端列数，默认 80。建议值：80 列适合大多数场景，120 列适合查看日志或表格数据",
-			"default":     80,
-		},
-		"mode": map[string]any{
-			"type": "string",
-			"description": `⚠️ 终端模式选择（重要）：
-
-📌 异步模式说明：ssh_shell 启动后会立即返回，shell 在后台持续运行。输出自动缓冲到内存（10000行），使用 ssh_read_output 读取。
-
-- "cooked"：逐行缓冲，回车后执行。仅用于简单命令（ls/cat/echo/ps/grep）。
-  ⚠️ 注意：如果是简单命令，强烈建议直接使用 ssh_exec 而不是 ssh_shell
-
-- "raw"：逐字符传递，无缓冲。必须用于交互式程序（vim/vi/nano/top/htop/gdb/python/node/mysql/psql/less/more/tmux/screen）。
-  ⚠️ 警告：运行交互式程序时如果使用 cooked 模式会卡住！
-
-默认值：cooked
-
-决策树：
-1. 是 vim/top/htop/gdb 等交互式程序？ → 用 raw
-2. 是简单的一次性命令？ → 用 ssh_exec，不要用 ssh_shell
-3. 需要连续执行多个命令并保持状态？ → 根据命令类型选择模式`,
-			"enum":    []string{"cooked", "raw"},
-			"default": "cooked",
-		},
-		"ansi_mode": map[string]any{
-			"type":        "string",
-			"description": "ANSI 处理模式：strip（移除 ANSI 序列，输出纯文本，AI 友好，默认）、raw（保留所有控制码）、parse（结构化解析，未来功能）。推荐使用 strip 获得最佳可读性",
-			"enum":        []string{"raw", "strip", "parse"},
-			"default":     "strip",
-		},
-		"read_timeout": map[string]any{
-			"type":        "integer",
-			"description": "读取超时时间（毫秒），默认 100ms。非阻塞模式下建议使用较短的超时以快速响应",
-			"default":     100,
+			"description": "终端列数，默认 160。建议值：120 列适合大多数场景，160 列适合查看表格数据",
+			"default":     160,
 		},
 		"working_dir": map[string]any{
 			"type":        "string",
@@ -375,6 +338,26 @@ func sshResizePtySchema() map[string]any {
 			"description": "终端列数",
 		},
 	}, []string{"session_id", "rows", "cols"})
+}
+
+// sshTerminalSnapshotSchema returns the input schema for ssh_terminal_snapshot
+func sshTerminalSnapshotSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"session_id": map[string]any{
+			"type":        "string",
+			"description": "会话 ID 或别名",
+		},
+		"with_color": map[string]any{
+			"type":        "boolean",
+			"description": "是否包含 ANSI 颜色码（默认 false）",
+			"default":     false,
+		},
+		"include_cursor_info": map[string]any{
+			"type":        "boolean",
+			"description": "是否包含光标位置信息（默认 false）",
+			"default":     false,
+		},
+	}, []string{"session_id"})
 }
 
 // sshListHostsSchema returns the input schema for ssh_list_hosts

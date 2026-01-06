@@ -1,10 +1,11 @@
 module github.com/cigar/sshmcp
 
-go 1.24.2
+go 1.24.4
 
 toolchain go1.24.11
 
 require (
+	github.com/ActiveState/vt10x v1.3.1
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/charmbracelet/x/ansi v0.11.3
 	github.com/google/uuid v1.6.0
@@ -13,11 +14,14 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.8.4
+	github.com/vito/vt100 v0.1.2
 	golang.org/x/crypto v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
+	github.com/Netflix/go-expect v0.0.0-20180615182759-c93bf25de8e8 // indirect
+	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/clipperhouse/displaywidth v0.6.2 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
@@ -26,12 +30,14 @@ require (
 	github.com/google/jsonschema-go v0.3.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
+	github.com/kr/pty v1.1.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/muesli/termenv v0.15.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/sagikazarmark/locafero v0.4.0 // indirect

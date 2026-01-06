@@ -304,12 +304,8 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 // handleSSHShell handles the ssh_shell tool
 func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	sessionID, _ := args["session_id"].(string)
-	term, _ := args["terminal_type"].(string)
 	rowsVal, _ := args["rows"].(float64)
 	colsVal, _ := args["cols"].(float64)
-	mode, _ := args["mode"].(string)
-	ansiMode, _ := args["ansi_mode"].(string)
-	readTimeoutVal, _ := args["read_timeout"].(float64)
 	workingDir, _ := args["working_dir"].(string)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
@@ -323,36 +319,20 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	rows := uint16(rowsVal)
 	cols := uint16(colsVal)
 	if rows == 0 {
-		rows = 24
+		rows = 40  // 默认 40 行，适合 htop
 	}
 	if cols == 0 {
-		cols = 80
+		cols = 160  // 默认 160 列，适合查看表格
 	}
 
-	// 创建 Shell 配置
+	// 创建 Shell 配置（自动设置为 raw 模式）
 	config := sshmcp.DefaultShellConfig()
+	config.Mode = sshmcp.TerminalModeRaw  // 强制使用 raw 模式（交互式程序专用）
+	config.ANSIMode = sshmcp.ANSIRaw      // 保留 ANSI 序列（支持颜色和光标）
+	// read_timeout 使用默认值 100ms
 
-	// 设置终端模式
-	if mode == "raw" {
-		config.Mode = sshmcp.TerminalModeRaw
-	} else {
-		config.Mode = sshmcp.TerminalModeCooked
-	}
-
-	// 设置 ANSI 处理模式
-	switch ansiMode {
-	case "strip":
-		config.ANSIMode = sshmcp.ANSIStrip
-	case "parse":
-		config.ANSIMode = sshmcp.ANSIParse
-	default:
-		config.ANSIMode = sshmcp.ANSIRaw
-	}
-
-	// 设置读取超时
-	if readTimeoutVal > 0 {
-		config.ReadTimeout = time.Duration(readTimeoutVal) * time.Millisecond
-	}
+	// 使用固定的终端类型
+	term := "xterm-256color"
 
 	// 使用配置创建 Shell
 	shellSession, err := session.CreateShellWithConfig(term, rows, cols, config)
@@ -395,32 +375,28 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 
 🔧 后续操作指引：
 
-1️⃣ 发送命令或输入：
-   ssh_write_input(session_id="%s", input="your command")
+1️⃣ 发送命令（启动交互式程序）：
+   ssh_write_input(session_id="%s", input="htop")
 
-2️⃣ 读取输出（多种策略）：
+2️⃣ 查看界面：
 
-   a) 读取最新 N 行（推荐）：
-      ssh_read_output(session_id="%s", strategy="latest_lines", limit=20)
+   a) 查看交互式程序界面（推荐）：
+      ssh_terminal_snapshot(session_id="%s")
 
-   b) 读取所有未读输出：
-      ssh_read_output(session_id="%s", strategy="all_unread")
-
-   c) 读取最新 N 字节：
-      ssh_read_output(session_id="%s", strategy="latest_bytes", limit=4096)
+   b) 查看大量文本输出（日志等）：
+      ssh_read_output(session_id="%s", strategy="latest_lines", limit=50)
 
 3️⃣ 查看会话状态：
    ssh_shell_status(session_id="%s")
 
-4️⃣ 发送特殊字符：
-   ssh_write_input(session_id="%s", special_char="ctrl+c")  # 中断
-   ssh_write_input(session_id="%s", special_char="ctrl+d")  # EOF
+4️⃣ 退出交互式程序：
+   ssh_write_input(session_id="%s", special_char="ctrl+c")  # 中断程序
 
 💡 提示：
-- 会话在后台持续运行，输出自动缓冲
-- 随时使用 ssh_read_output 读取最新输出
-- 使用 ssh_shell_status 查看详细状态
-- 如需交互式程序（vim/top/gdb），请使用 mode="raw"
+- 本会话专门用于交互式程序（htop/vim/gdb/tmux）
+- 简单命令建议使用 ssh_exec，更高效
+- 使用 ssh_terminal_snapshot 查看完整的交互式界面
+- 会话在后台持续运行，随时可查看
 `,
 				func() string {
 					if session.Alias != "" {
@@ -428,13 +404,13 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 					}
 					return sessionID
 				}(),
-				mode,
+				"raw",  // 固定为 raw 模式
 				cols, rows,
-				ansiMode,
+				"raw",  // 固定为 raw ANSI 模式
 				workingDirMsg,
 				status.BufferTotal,
 				status.BufferTotal / 1024,  // 估算 KB
-				sessionID, sessionID, sessionID, sessionID, sessionID, sessionID, sessionID, sessionID),
+				sessionID, sessionID, sessionID, sessionID),
 		}},
 	}, nil, nil
 }
@@ -878,6 +854,58 @@ func (s *Server) handleSSHResizePty(ctx context.Context, req *mcp.CallToolReques
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Terminal resized to %dx%d for session %s", rows, cols, sessionID)}},
+	}, nil, nil
+}
+
+// handleSSHTerminalSnapshot handles the ssh_terminal_snapshot tool
+func (s *Server) handleSSHTerminalSnapshot(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	sessionID, _ := args["session_id"].(string)
+	withColor, _ := args["with_color"].(bool)
+	includeCursorInfo, _ := args["include_cursor_info"].(bool)
+
+	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	session.RLock()
+	hasShell := session.ShellSession != nil
+	session.RUnlock()
+
+	if !hasShell {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No active shell session for session_id: %s\nHint: Use ssh_shell() to start an interactive shell first", sessionID)}},
+			IsError: true,
+		}, nil, nil
+	}
+
+	// Get the terminal snapshot
+	var snapshot string
+	if withColor {
+		snapshot = session.ShellSession.GetTerminalSnapshotWithColor()
+	} else {
+		snapshot = session.ShellSession.GetTerminalSnapshot()
+	}
+
+	// Build result
+	result := fmt.Sprintf("📸 Terminal Snapshot for session %s\n\n", sessionID)
+
+	if includeCursorInfo {
+		x, y := session.ShellSession.GetCursorPosition()
+		w, h := session.ShellSession.GetTerminalSize()
+		result += fmt.Sprintf("Cursor Position: (%d, %d)\n", x, y)
+		result += fmt.Sprintf("Terminal Size: %dx%d\n\n", w, h)
+	}
+
+	result += "```\n"
+	result += snapshot
+	result += "\n```"
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: result}},
 	}, nil, nil
 }
 

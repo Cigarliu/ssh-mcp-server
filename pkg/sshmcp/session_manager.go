@@ -31,7 +31,7 @@ type ManagerConfig struct {
 func DefaultManagerConfig(logger *zerolog.Logger) ManagerConfig {
 	return ManagerConfig{
 		MaxSessions:        100,
-		MaxSessionsPerHost: 10,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     30 * time.Minute,
 		IdleTimeout:        10 * time.Minute,
 		CleanupInterval:    1 * time.Minute,

@@ -7,7 +7,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/acarl005/stripansi"
@@ -120,6 +119,13 @@ func (s *Session) CreateShellWithConfig(term string, rows, cols uint16, config *
 	heartbeatDone := make(chan struct{})
 	keepaliveDone := make(chan struct{})
 
+	// Create terminal capturer for snapshot support
+	termCapturer, err := NewTerminalCapturer(int(cols), int(rows))
+	if err != nil {
+		session.Close()
+		return nil, fmt.Errorf("create terminal capturer: %w", err)
+	}
+
 	shellSession := &SSHShellSession{
 		Session: session,
 		Stdin:   stdin,
@@ -132,14 +138,15 @@ func (s *Session) CreateShellWithConfig(term string, rows, cols uint16, config *
 			Rows: rows,
 			Cols: cols,
 		},
-		OutputBuffer:   NewCircularBuffer(bufferSize),
-		BufferSize:     bufferSize,
-		LastKeepAlive:  time.Now(),
-		KeepAliveFails: 0,
-		IsActive:       true,
-		done:           done,
-		heartbeatDone:  heartbeatDone,
-		keepaliveDone:  keepaliveDone,
+		OutputBuffer:     NewCircularBuffer(bufferSize),
+		BufferSize:       bufferSize,
+		TerminalCapturer: termCapturer,
+		LastKeepAlive:    time.Now(),
+		KeepAliveFails:   0,
+		IsActive:         true,
+		done:             done,
+		heartbeatDone:    heartbeatDone,
+		keepaliveDone:    keepaliveDone,
 	}
 
 	s.ShellSession = shellSession
@@ -288,6 +295,11 @@ func (ss *SSHShellSession) Resize(rows, cols uint16) error {
 	if err == nil {
 		ss.TerminalInfo.Rows = rows
 		ss.TerminalInfo.Cols = cols
+
+		// Also resize the terminal capturer
+		if ss.TerminalCapturer != nil {
+			ss.TerminalCapturer.Resize(int(cols), int(rows))
+		}
 	}
 
 	return err
@@ -383,84 +395,20 @@ func (ss *SSHShellSession) ReadOutputNonBlocking(timeout time.Duration) (string,
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
-	if ss.Stdout == nil || ss.Stderr == nil {
-		return "", "", fmt.Errorf("stdout/stderr is not available")
+	if ss.OutputBuffer == nil {
+		return "", "", fmt.Errorf("output buffer is not available")
 	}
 
-	// 使用实际配置的 timeout 或传入的 timeout
-	readTimeout := timeout
-	if readTimeout <= 0 && ss.Config != nil {
-		readTimeout = ss.Config.ReadTimeout
-	}
-	if readTimeout <= 0 {
-		readTimeout = 100 * time.Millisecond
-	}
+	// 从 OutputBuffer 读取所有未读的数据
+	lines := ss.OutputBuffer.ReadAllUnread()
 
-	// 创建缓冲区
+	// 将行连接成字符串（使用换行符）
 	var stdoutBuf, stderrBuf bytes.Buffer
-	var wg sync.WaitGroup
-	var stdoutErr, stderrErr error
 
-	// 读取 stdout with timeout
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 4096)
-
-		// 尝试设置读取超时（如果 stdout 支持）
-		if stdoutFile, ok := ss.Stdout.(interface{ SetReadDeadline(time.Time) error }); ok {
-			stdoutFile.SetReadDeadline(time.Now().Add(readTimeout))
-		}
-
-		n, err := ss.Stdout.Read(buf)
-		if err != nil && err != io.EOF {
-			if os.IsTimeout(err) || err.Error() == "deadline exceeded" {
-				// 超时不是错误，返回已读取的部分
-				stdoutBuf.Write(buf[:n])
-				return
-			}
-			stdoutErr = err
-			return
-		}
-		stdoutBuf.Write(buf[:n])
-	}()
-
-	// 读取 stderr with timeout
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 4096)
-
-		// 尝试设置读取超时
-		if stderrFile, ok := ss.Stderr.(interface{ SetReadDeadline(time.Time) error }); ok {
-			stderrFile.SetReadDeadline(time.Now().Add(readTimeout))
-		}
-
-		n, err := ss.Stderr.Read(buf)
-		if err != nil && err != io.EOF {
-			if os.IsTimeout(err) || err.Error() == "deadline exceeded" {
-				// 超时不是错误，返回已读取的部分
-				stderrBuf.Write(buf[:n])
-				return
-			}
-			stderrErr = err
-			return
-		}
-		stderrBuf.Write(buf[:n])
-	}()
-
-	// 等待读取完成或超时
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// 读取完成
-	case <-time.After(readTimeout + 10*time.Millisecond):
-		// 超时，返回已读取的部分
+	// 分离 stdout 和 stderr（简单假设：没有真正的stderr分离）
+	for _, line := range lines {
+		stdoutBuf.WriteString(line)
+		stdoutBuf.WriteString("\n")
 	}
 
 	stdoutStr := stdoutBuf.String()
@@ -484,10 +432,6 @@ func (ss *SSHShellSession) ReadOutputNonBlocking(timeout time.Duration) (string,
 		if dir := extractCurrentDir(stdoutStr); dir != "" {
 			ss.currentDir = dir
 		}
-	}
-
-	if stdoutErr != nil || stderrErr != nil {
-		return stdoutStr, stderrStr, fmt.Errorf("stdout: %v, stderr: %v", stdoutErr, stderrErr)
 	}
 
 	return stdoutStr, stderrStr, nil
@@ -646,10 +590,15 @@ func (ss *SSHShellSession) startOutputReader() {
 				n, err := ss.Stdout.Read(buf)
 				if n > 0 {
 					// Process the received data
-					data := string(buf[:n])
+					data := buf[:n]
+
+					// Feed to terminal capturer for snapshot support
+					if ss.TerminalCapturer != nil {
+						ss.TerminalCapturer.Emulator.Write(data)
+					}
 
 					// Split by lines and write to buffer
-					lines := strings.Split(data, "\n")
+					lines := strings.Split(string(data), "\n")
 					for i, line := range lines {
 						if i > 0 {
 							// Complete line, write to buffer
@@ -742,4 +691,62 @@ func (ss *SSHShellSession) startApplicationHeartbeat() {
 // Done returns the done channel for the session
 func (ss *SSHShellSession) Done() <-chan struct{} {
 	return ss.done
+}
+
+// GetTerminalSnapshot returns a plain text snapshot of the current terminal state
+func (ss *SSHShellSession) GetTerminalSnapshot() string {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.TerminalCapturer == nil {
+		return ""
+	}
+
+	return ss.TerminalCapturer.GetScreenSnapshot()
+}
+
+// GetTerminalSnapshotWithColor returns a colored ANSI snapshot of the current terminal state
+func (ss *SSHShellSession) GetTerminalSnapshotWithColor() string {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.TerminalCapturer == nil {
+		return ""
+	}
+
+	return ss.TerminalCapturer.GetScreenSnapshotWithColor()
+}
+
+// GetTerminalSize returns the current terminal size
+func (ss *SSHShellSession) GetTerminalSize() (int, int) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.TerminalCapturer == nil {
+		return 0, 0
+	}
+
+	return ss.TerminalCapturer.GetSize()
+}
+
+// GetCursorPosition returns the current cursor position
+func (ss *SSHShellSession) GetCursorPosition() (int, int) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.TerminalCapturer == nil {
+		return 0, 0
+	}
+
+	return ss.TerminalCapturer.GetCursorPosition()
+}
+
+// ResizeTerminal resizes the terminal capturer
+func (ss *SSHShellSession) ResizeTerminal(width, height int) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	if ss.TerminalCapturer != nil {
+		ss.TerminalCapturer.Resize(width, height)
+	}
 }

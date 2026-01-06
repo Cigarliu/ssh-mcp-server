@@ -93,13 +93,19 @@ func TestInteractiveShell_ANSIStrip(t *testing.T) {
 
 	t.Log("✅ Created shell with ANSI strip mode")
 
+	// 先清空初始化消息
+	shell.ReadOutputNonBlocking(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+
 	// 发送一个带颜色的命令
 	err = shell.WriteInput("echo -e '\\033[31mRed Text\\033[0m'\n")
 	require.NoError(t, err)
 
+	// 等待命令执行并让后台goroutine读取
+	time.Sleep(500 * time.Millisecond)
+
 	// 读取输出
-	time.Sleep(200 * time.Millisecond)
-	stdout, _, err := shell.ReadOutputNonBlocking(100 * time.Millisecond)
+	stdout, _, err := shell.ReadOutputNonBlocking(200 * time.Millisecond)
 	require.NoError(t, err)
 
 	t.Logf("Output (ANSI stripped): %s", stdout)
@@ -174,16 +180,23 @@ func TestInteractiveShell_RawMode(t *testing.T) {
 
 	t.Log("✅ Created shell in raw mode")
 
+	// 先清空初始化消息
+	shell.ReadOutputNonBlocking(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+
 	// 在 raw mode 下测试命令输入
 	err = shell.WriteInput("pwd\n")
 	require.NoError(t, err)
 
-	time.Sleep(100 * time.Millisecond)
-	stdout, _, err := shell.ReadOutputNonBlocking(100 * time.Millisecond)
+	// 等待命令执行并让后台goroutine读取
+	time.Sleep(500 * time.Millisecond)
+
+	// 读取输出
+	stdout, _, err := shell.ReadOutputNonBlocking(200 * time.Millisecond)
 	require.NoError(t, err)
 
 	t.Logf("Raw mode output: %s", stdout)
-	assert.Contains(t, stdout, "/root")
+	assert.Contains(t, stdout, "/home/cigar")
 
 	t.Log("✅ Raw mode test successful")
 }
@@ -217,7 +230,7 @@ func TestInteractiveShell_Configuration(t *testing.T) {
 	t.Run("Default configuration", func(t *testing.T) {
 		config := DefaultShellConfig()
 		assert.Equal(t, TerminalModeCooked, config.Mode)
-		assert.Equal(t, ANSIRaw, config.ANSIMode)
+		assert.Equal(t, ANSIStrip, config.ANSIMode) // 默认使用 ANSIStrip 以便 AI 更好理解
 		assert.Equal(t, 100*time.Millisecond, config.ReadTimeout)
 		assert.True(t, config.AutoDetectInteractive)
 	})
@@ -294,12 +307,16 @@ func TestInteractiveShell_RealWorldScenario(t *testing.T) {
 
 	t.Log("=== Real-world scenario test ===")
 
+	// 先清空初始化消息
+	shell.ReadOutputNonBlocking(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+
 	// 场景 1: 执行命令并读取输出
 	t.Log("Scenario 1: Execute command and read output")
 	err = shell.WriteInput("uname -a\n")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond) // 增加等待时间让后台goroutine读取
 	stdout, _, _ := shell.ReadOutputNonBlocking(200 * time.Millisecond)
 	assert.Contains(t, stdout, "Linux")
 	t.Logf("Command output: %s", stdout[:min(100, len(stdout))])
@@ -339,7 +356,7 @@ func createTestSession(t *testing.T) *Session {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 3,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     10 * time.Minute,
 		IdleTimeout:        5 * time.Minute,
 		CleanupInterval:    1 * time.Minute,

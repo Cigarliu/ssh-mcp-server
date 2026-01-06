@@ -90,24 +90,27 @@ func (s *Server) registerTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name: "ssh_shell",
-		Description: `启动交互式 shell 会话。
+		Description: `启动交互式 shell 会话（仅用于交互式程序）。
 
 ⚠️ 重要提示：
-1. 如果只是执行简单命令（ls、cat、grep、cd、ps 等），请使用 ssh_exec，更高效且不会卡住
-2. ssh_shell 用于需要保持上下文的场景（连续多个命令、环境变量、目录切换）
+- 如果只是执行简单命令（ls/cat/grep/ps 等），请使用 ssh_exec，更高效且不会卡住
+- ssh_shell 专门用于交互式程序（htop/vim/gdb/tmux 等）
 
-模式选择指南：
-- mode="cooked"：仅用于简单命令（ls/cat/echo），但不如 ssh_exec 高效
-- mode="raw"：必须用于交互式程序（vim/top/htop/gdb/python/mysql），否则会卡住
+✅ 适用场景：
+- 运行全屏交互式程序（htop、top、vim、nano、gdb）
+- 需要 TUI 界面的程序（tmux、screen、docker pull）
+- 查看实时进度（ping、traceroute）
 
-典型使用场景：
-✅ 需要在同一会话中连续执行多个命令并保持状态
-✅ 运行交互式程序（必须用 raw 模式）
-✅ 需要追踪当前目录变化
+❌ 不要使用场景：
+- 简单命令 → 用 ssh_exec
+- 批量命令 → 用 ssh_exec_batch
+- 查看日志 → 用 ssh_exec
 
-❌ 不要用 ssh_shell 的场景：
-- 一次性命令 → 用 ssh_exec
-- 批量独立命令 → 用 ssh_exec_batch`,
+💡 使用流程：
+1. ssh_shell() - 启动交互式会话（自动使用 raw 模式）
+2. ssh_write_input() - 发送命令（如 "htop"）
+3. ssh_terminal_snapshot() - 查看完整界面
+4. ssh_write_input(special_char="ctrl+c") - 退出程序`,
 		InputSchema: sshShellSchema(),
 	}, s.handleSSHShell)
 
@@ -151,7 +154,29 @@ func (s *Server) registerTools() {
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "ssh_read_output",
-		Description: "读取会话输出",
+		Description: `读取会话的大量文本输出（从输出缓冲区）。
+
+⚠️ 与 ssh_terminal_snapshot 的区别：
+- ssh_read_output：读取大量文本（10000+ 行），适合查看日志、编译输出
+- ssh_terminal_snapshot：查看当前屏幕（30 行），适合查看交互式程序界面
+
+✅ 使用场景：
+- 查看超过屏幕大小的输出（100+ 行）
+- 读取日志文件（journalctl -n 1000、tail -f）
+- 查看编译/构建输出（make、npm install）
+- 需要追溯历史命令输出
+- 读取命令执行结果（cat、grep、find）
+
+❌ 不要使用场景：
+- 查看交互式程序 → 用 ssh_terminal_snapshot
+- 查看全屏 TUI 程序（htop/vim）→ 用 ssh_terminal_snapshot
+
+💡 读取策略：
+- strategy="latest_lines" + limit=50 → 获取最新 50 行
+- strategy="all_unread" → 读取所有未读数据
+- strategy="latest_bytes" + limit=4096 → 获取最新 4KB
+
+📊 容量：输出缓冲区可存储 10000 行历史记录`,
 		InputSchema: sshReadOutputSchema(),
 	}, s.handleSSHReadOutput)
 
@@ -160,6 +185,44 @@ func (s *Server) registerTools() {
 		Description: "调整终端窗口大小",
 		InputSchema: sshResizePtySchema(),
 	}, s.handleSSHResizePty)
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "ssh_terminal_snapshot",
+		Description: `获取终端屏幕快照（仅用于查看交互式程序界面）。
+
+⚠️ 与 ssh_read_output 的区别：
+- ssh_terminal_snapshot：查看当前屏幕（30 行），适合查看交互式程序界面
+- ssh_read_output：读取大量文本（10000+ 行），适合查看日志、编译输出
+
+✅ 使用场景：
+- 查看交互式程序的当前状态（htop、top、vim、gdb、tmux）
+- 查看全屏 TUI 程序界面（包括进度条、表格、图形）
+- 需要看到完整屏幕内容（不只是文本输出）
+- 调试终端渲染问题
+
+⚡ 核心优势：
+- 使用 VT100 终端模拟器捕获完整屏幕状态
+- 支持 ANSI 颜色和光标位置信息
+- 不依赖输出缓冲区，直接获取屏幕内容
+- 完美兼容所有交互式程序和 TUI 应用
+
+❌ 不要使用场景：
+- 查看命令执行结果 → 用 ssh_read_output
+- 查看日志文件 → 用 ssh_read_output
+- 查看编译输出 → 用 ssh_read_output
+
+💡 使用流程：
+1. ssh_shell() - 启动交互式会话（自动 raw 模式）
+2. ssh_write_input(input="htop") - 启动交互式程序
+3. ssh_terminal_snapshot() - 查看完整界面
+4. ssh_write_input(special_char="ctrl+c") - 退出程序
+
+🎨 参数说明：
+- with_color=false - 纯文本快照（默认）
+- with_color=true - 包含 ANSI 颜色码
+- include_cursor_info=true - 显示光标位置和终端尺寸`,
+		InputSchema: sshTerminalSnapshotSchema(),
+	}, s.handleSSHTerminalSnapshot)
 
 	// Shell 状态查询工具
 	mcp.AddTool(s.mcpServer, &mcp.Tool{

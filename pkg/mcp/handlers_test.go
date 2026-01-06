@@ -16,8 +16,8 @@ import (
 func setupTestServer(t *testing.T) (*Server, *sshmcp.SessionManager) {
 	logger := setupTestLogger()
 	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
-		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessions:        50,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
