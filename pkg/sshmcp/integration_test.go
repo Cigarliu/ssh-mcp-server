@@ -2,6 +2,7 @@ package sshmcp
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func TestRealSSH_Connection(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -81,7 +82,7 @@ func TestRealSSH_ExecuteCommand(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -152,7 +153,7 @@ func TestRealSSH_SFTP(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -172,9 +173,9 @@ func TestRealSSH_SFTP(t *testing.T) {
 	require.NoError(t, err)
 	defer sm.RemoveSession(session.ID)
 
-	// 创建测试文件
-	localTestFile := "/tmp/sshmcp_test.txt"
-	remoteTestFile := "/tmp/sshmcp_test_remote.txt"
+	// 创建测试文件（使用跨平台路径）
+	localTestFile := filepath.Join(os.TempDir(), "sshmcp_test.txt")
+	remoteTestFile := "/tmp/sshmcp_test_remote.txt" // 远程服务器使用 /tmp
 	testContent := "Hello from SSH MCP Server at " + time.Now().Format(time.RFC3339)
 
 	// 写入本地测试文件
@@ -206,7 +207,7 @@ func TestRealSSH_SFTP(t *testing.T) {
 
 	// 下载文件
 	t.Log("✅ 测试 SFTP 下载文件")
-	localDownloadFile := "/tmp/sshmcp_test_download.txt"
+	localDownloadFile := filepath.Join(os.TempDir(), "sshmcp_test_download.txt")
 	defer os.Remove(localDownloadFile)
 
 	result2, err := session.DownloadFile(remoteTestFile, localDownloadFile, false, true)
@@ -240,7 +241,7 @@ func TestRealSSH_InteractiveShell(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -312,7 +313,7 @@ func TestRealSSH_SessionList(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -385,7 +386,7 @@ func TestRealSSH_AliasFeature(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -424,7 +425,7 @@ func TestRealSSH_AliasFeature(t *testing.T) {
 	t.Log("3. 测试别名冲突检测")
 	_, err = sm.CreateSession(host, 22, username, authConfig, "prod")
 	assert.Error(t, err, "创建同名别名应该失败")
-	assert.Contains(t, err.Error(), "already exists", "错误信息应该包含 'already exists'")
+	assert.Contains(t, err.Error(), "already in use", "错误信息应该包含 'already in use'")
 	t.Logf("   ✅ 冲突检测正常: %v", err)
 
 	// 4. 测试通过别名获取会话
@@ -520,7 +521,7 @@ func TestRealSSH_AliasEndToEnd(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,

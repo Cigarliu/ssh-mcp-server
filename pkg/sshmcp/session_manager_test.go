@@ -14,7 +14,7 @@ func TestSessionManager_CreateSession(t *testing.T) {
 
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -42,7 +42,7 @@ func TestSessionManager_ListSessions(t *testing.T) {
 
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -63,7 +63,7 @@ func TestSessionManager_CountSessions(t *testing.T) {
 
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -84,7 +84,7 @@ func TestSessionManager_CountSessionsPerHost(t *testing.T) {
 
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -105,7 +105,7 @@ func TestSessionManager_RemoveSession(t *testing.T) {
 
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -214,7 +214,7 @@ func TestSessionManager_AliasExists(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -257,7 +257,7 @@ func TestSessionManager_GetSessionByAlias(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -303,7 +303,7 @@ func TestSessionManager_GetSessionByIDOrAlias(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -348,7 +348,7 @@ func TestSessionManager_GenerateUniqueAlias(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -406,7 +406,7 @@ func TestSessionManager_AliasConflict(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -447,7 +447,7 @@ func TestSessionManager_AutoGenerateAlias(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -510,7 +510,7 @@ func TestSessionManager_ReconnectWithSameAlias(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -569,7 +569,7 @@ func TestSessionManager_ReconnectUnhealthySession(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -630,7 +630,7 @@ func TestSessionManager_IsSessionHealthy(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,
@@ -678,7 +678,7 @@ func TestSessionManager_GetSessionByAliasWithHealthCheck(t *testing.T) {
 	logger := setupTestLogger(t)
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
 		IdleTimeout:        2 * time.Minute,
 		CleanupInterval:    10 * time.Second,

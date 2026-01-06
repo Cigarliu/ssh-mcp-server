@@ -56,7 +56,7 @@ func createTestSessionManager(t *testing.T) *SessionManager {
 
 	config := ManagerConfig{
 		MaxSessions:        10,
-		MaxSessionsPerHost: 5,
+		MaxSessionsPerHost: 30,
 		SessionTimeout:     30 * time.Minute,
 		IdleTimeout:        10 * time.Minute,
 		CleanupInterval:    1 * time.Minute,

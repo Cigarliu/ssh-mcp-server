@@ -336,6 +336,9 @@ type SSHShellSession struct {
 	OutputBuffer   *CircularBuffer
 	BufferSize     int
 
+	// Terminal emulator for snapshot support
+	TerminalCapturer *TerminalCapturer
+
 	// Keepalive tracking
 	LastKeepAlive  time.Time
 	KeepAliveFails int
