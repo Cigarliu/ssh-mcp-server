@@ -52,12 +52,12 @@ type SFTPConfig struct {
 
 // HostConfig represents a predefined SSH host configuration
 type HostConfig struct {
-	Host            string `mapstructure:"host"`
-	Port            int    `mapstructure:"port"`
-	Username        string `mapstructure:"username"`
-	Password        string `mapstructure:"password,omitempty"`
-	PrivateKeyPath  string `mapstructure:"private_key_path,omitempty"`
-	Description     string `mapstructure:"description,omitempty"`
+	Host           string `mapstructure:"host"`
+	Port           int    `mapstructure:"port"`
+	Username       string `mapstructure:"username"`
+	Password       string `mapstructure:"password,omitempty"`
+	PrivateKeyPath string `mapstructure:"private_key_path,omitempty"`
+	Description    string `mapstructure:"description,omitempty"`
 }
 
 // HostsConfig represents the predefined hosts configuration
@@ -76,8 +76,19 @@ func LoadConfig(configPath string) (*Config, error) {
 		viper.SetConfigName("config")
 		viper.SetConfigType("yaml")
 		viper.AddConfigPath(".")
+		// Linux/Unix paths - try expanded paths
 		viper.AddConfigPath("/etc/sshmcp/")
-		viper.AddConfigPath("$HOME/.sshmcp/")
+		// Try to get user home directory for cross-platform support
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			// Add ~/.sshmcp/ (Windows & Unix)
+			viper.AddConfigPath(filepath.Join(homeDir, ".sshmcp"))
+			// Also try $HOME/.sshmcp/ as fallback
+			homeEnv := os.Getenv("HOME")
+			if homeEnv != "" {
+				viper.AddConfigPath(filepath.Join(homeEnv, ".sshmcp"))
+			}
+		}
 	}
 
 	// 环境变量
@@ -128,7 +139,12 @@ func generateDefaultConfig() (string, error) {
 	configDir := filepath.Join(homeDir, ".sshmcp")
 	configFile := filepath.Join(configDir, "config.yaml")
 
-	// 创建配置目录
+	// Check if config already exists - never overwrite existing config
+	if _, err := os.Stat(configFile); err == nil {
+		return configFile, nil // Config exists, return path without overwriting
+	}
+
+	// Create config directory
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return "", fmt.Errorf("create config directory: %w", err)
 	}
