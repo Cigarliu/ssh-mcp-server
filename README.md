@@ -1,5 +1,7 @@
 # SSH MCP Server
 
+[English](README.en.md)
+
 一个面向 AI 客户端的 SSH 与串口 MCP Server。它把连接管理、终端字节流和 TUI 屏幕投影分层，使模型通过少量稳定工具完成远程命令、交互式终端和串口控制台操作。
 
 ## 能力
@@ -138,12 +140,6 @@ go test -race ./pkg/terminal ./pkg/serialmcp ./pkg/mcp
 ```
 
 本机 SSH 与串口集成测试均为显式 opt-in，避免默认测试连接设备或使用凭据。相关环境变量定义在 `pkg/mcp/terminal_integration_test.go`。
-
-## English
-
-SSH MCP Server provides transport-neutral MCP tools for SSH and serial terminals. The default `core` profile exposes eight tools for connection management, non-interactive SSH commands, and deterministic terminal interaction. Use `terminal_interact` for byte-stream output and `terminal_view` only for SSH TUI screens.
-
-Build with `go build -o bin/sshmcp ./cmd/server`, configure it as an stdio MCP server, and keep logging on stderr. See the Chinese sections above and [config.example.yaml](config.example.yaml) for setup, tool profiles, serial permissions, and test commands.
 
 ## License
 
