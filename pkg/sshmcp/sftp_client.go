@@ -373,10 +373,14 @@ func (s *Session) MakeDirectory(remotePath string, recursive bool, mode os.FileM
 	s.LastUsedAt = time.Now()
 
 	if recursive {
-		return s.SFTPClient.MkdirAll(remotePath)
+		if err := s.SFTPClient.MkdirAll(remotePath); err != nil {
+			return err
+		}
+	} else if err := s.SFTPClient.Mkdir(remotePath); err != nil {
+		return err
 	}
 
-	return s.SFTPClient.Mkdir(remotePath)
+	return s.SFTPClient.Chmod(remotePath, mode)
 }
 
 // RemoveFile removes a remote file or directory

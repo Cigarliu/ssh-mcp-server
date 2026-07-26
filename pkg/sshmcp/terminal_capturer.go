@@ -10,7 +10,7 @@ import (
 
 // TerminalCapturer 捕获终端输出并维护屏幕状态
 type TerminalCapturer struct {
-	Emulator TerminalEmulator  // 使用抽象接口
+	Emulator TerminalEmulator // 使用抽象接口
 	PTY      *os.File
 	mu       sync.Mutex
 	closed   bool
@@ -75,10 +75,7 @@ func (tc *TerminalCapturer) readLoop() {
 
 		n, err := pty.Read(buf)
 		if n > 0 {
-			// 让终端模拟器处理原始字节流（包括所有 ANSI 序列）
-			tc.mu.Lock()
-			tc.Emulator.Write(buf[:n])
-			tc.mu.Unlock()
+			tc.Feed(buf[:n])
 		}
 
 		if err != nil {
@@ -95,6 +92,22 @@ func (tc *TerminalCapturer) readLoop() {
 		}
 	}
 }
+
+// Feed updates the screen projection from raw terminal bytes. It implements
+// terminal.Screen while keeping emulator access synchronized with snapshots.
+func (tc *TerminalCapturer) Feed(data []byte) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if !tc.closed && tc.Emulator != nil {
+		tc.Emulator.Write(data)
+	}
+}
+
+func (tc *TerminalCapturer) Snapshot() string { return tc.GetScreenSnapshot() }
+
+func (tc *TerminalCapturer) Cursor() (int, int) { return tc.GetCursorPosition() }
+
+func (tc *TerminalCapturer) Size() (int, int) { return tc.GetSize() }
 
 // GetScreenSnapshot 获取当前屏幕内容的快照（纯文本）
 func (tc *TerminalCapturer) GetScreenSnapshot() string {

@@ -177,7 +177,7 @@ func TestDefaultShellConfig(t *testing.T) {
 
 	assert.NotNil(t, config)
 	assert.Equal(t, TerminalModeCooked, config.Mode)
-	assert.Equal(t, ANSIRaw, config.ANSIMode)
+	assert.Equal(t, ANSIStrip, config.ANSIMode)
 	assert.Equal(t, 100*time.Millisecond, config.ReadTimeout)
 	assert.Equal(t, 5*time.Second, config.WriteTimeout)
 	assert.True(t, config.AutoDetectInteractive)

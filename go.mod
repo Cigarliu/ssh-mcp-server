@@ -15,6 +15,7 @@ require (
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.8.4
 	github.com/vito/vt100 v0.1.2
+	go.bug.st/serial v1.6.4
 	golang.org/x/crypto v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -25,6 +26,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.6.2 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
+	github.com/creack/goselect v0.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/google/jsonschema-go v0.3.0 // indirect

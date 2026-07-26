@@ -67,27 +67,32 @@ func TestTerminalCapturer_CursorPosition(t *testing.T) {
 
 // TestTerminalCapturer_Size 测试终端尺寸
 func TestTerminalCapturer_Size(t *testing.T) {
-	width, height := 120, 40
+	for _, emulatorType := range []TerminalEmulatorType{EmulatorTypeVT10x, EmulatorTypeVT100} {
+		t.Run(string(emulatorType), func(t *testing.T) {
+			width, height := 120, 40
+			capturer, err := NewTerminalCapturerWithType(width, height, emulatorType)
+			require.NoError(t, err)
 
-	capturer, err := NewTerminalCapturer(width, height)
-	require.NoError(t, err)
-
-	w, h := capturer.GetSize()
-	assert.Equal(t, width, w)
-	assert.Equal(t, height, h)
+			w, h := capturer.GetSize()
+			assert.Equal(t, width, w)
+			assert.Equal(t, height, h)
+		})
+	}
 }
 
 // TestTerminalCapturer_Resize 测试调整尺寸
 func TestTerminalCapturer_Resize(t *testing.T) {
-	capturer, err := NewTerminalCapturer(80, 24)
-	require.NoError(t, err)
+	for _, emulatorType := range []TerminalEmulatorType{EmulatorTypeVT10x, EmulatorTypeVT100} {
+		t.Run(string(emulatorType), func(t *testing.T) {
+			capturer, err := NewTerminalCapturerWithType(80, 24, emulatorType)
+			require.NoError(t, err)
 
-	// 调整尺寸
-	capturer.Resize(100, 30)
-
-	w, h := capturer.GetSize()
-	assert.Equal(t, 100, w)
-	assert.Equal(t, 30, h)
+			capturer.Resize(100, 30)
+			w, h := capturer.GetSize()
+			assert.Equal(t, 100, w)
+			assert.Equal(t, 30, h)
+		})
+	}
 }
 
 // TestTerminalCapturer_MultipleLines 测试多行文本

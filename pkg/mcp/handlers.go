@@ -4,11 +4,20 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cigar/sshmcp/pkg/sshmcp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+const (
+	defaultMaxOutputChars = 12000
+	maxTerminalRows       = 100
+	maxTerminalCols       = 240
+	maxBatchCommands      = 20
+	maxDirectoryEntries   = 200
 )
 
 // formatBytes converts bytes to human-readable format
@@ -187,6 +196,7 @@ func (s *Server) handleSSHExec(ctx context.Context, req *mcp.CallToolRequest, ar
 	command, _ := args["command"].(string)
 	timeoutVal, _ := args["timeout"].(float64)
 	workingDir, _ := args["working_dir"].(string)
+	maxOutputCharsVal, _ := args["max_output_chars"].(float64)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -215,18 +225,75 @@ func (s *Server) handleSSHExec(ctx context.Context, req *mcp.CallToolRequest, ar
 		}, nil, nil
 	}
 
+	maxOutputChars := boundedOutputLimit(maxOutputCharsVal)
+	stdout, stderr, truncated := truncateCommandOutput(result.Stdout, result.Stderr, maxOutputChars)
+
 	output := fmt.Sprintf("Exit Code: %d\n\n", result.ExitCode)
-	if result.Stdout != "" {
-		output += fmt.Sprintf("STDOUT:\n%s\n\n", result.Stdout)
+	if stdout != "" {
+		output += fmt.Sprintf("STDOUT:\n%s\n\n", stdout)
 	}
-	if result.Stderr != "" {
-		output += fmt.Sprintf("STDERR:\n%s\n\n", result.Stderr)
+	if stderr != "" {
+		output += fmt.Sprintf("STDERR:\n%s\n\n", stderr)
 	}
 	output += fmt.Sprintf("Execution Time: %s", result.ExecutionTime)
+	if truncated {
+		output += fmt.Sprintf("\nOutput truncated to %d characters. Narrow the remote command to inspect more.", maxOutputChars)
+	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: output}},
-	}, nil, nil
+			Content: []mcp.Content{&mcp.TextContent{Text: output}},
+		}, map[string]any{
+			"exit_code":      result.ExitCode,
+			"stdout":         stdout,
+			"stderr":         stderr,
+			"execution_time": result.ExecutionTime,
+			"truncated":      truncated,
+		}, nil
+}
+
+func truncateCommandOutput(stdout, stderr string, limit int) (string, string, bool) {
+	stdout, stdoutTruncated := truncateText(stdout, limit)
+	remaining := limit - len([]rune(stdout))
+	if remaining < 0 {
+		remaining = 0
+	}
+	stderr, stderrTruncated := truncateText(stderr, remaining)
+	return stdout, stderr, stdoutTruncated || stderrTruncated
+}
+
+func truncateText(text string, limit int) (string, bool) {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text, false
+	}
+	return string(runes[:limit]), true
+}
+
+func boundedOutputLimit(value float64) int {
+	if value >= 1 && value <= defaultMaxOutputChars && value == float64(int(value)) {
+		return int(value)
+	}
+	return defaultMaxOutputChars
+}
+
+func directoryEntryLimit(value float64) int {
+	if value < 1 {
+		return 100
+	}
+	if value > maxDirectoryEntries {
+		return maxDirectoryEntries
+	}
+	return int(value)
+}
+
+func terminalDimension(name string, value float64, defaultValue, maximum uint16) (uint16, error) {
+	if value == 0 && defaultValue > 0 {
+		return defaultValue, nil
+	}
+	if value < 1 || value > float64(maximum) || value != float64(int(value)) {
+		return 0, fmt.Errorf("%s must be an integer from 1 to %d", name, maximum)
+	}
+	return uint16(value), nil
 }
 
 // handleSSHExecBatch handles the ssh_exec_batch tool
@@ -235,7 +302,17 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 	commandsInterface, _ := args["commands"].([]any)
 	stopOnErrorVal, _ := args["stop_on_error"].(bool)
 	timeoutVal, _ := args["timeout"].(float64)
-	compactVal, _ := args["compact"].(bool)
+	compactVal := true
+	if compact, ok := args["compact"].(bool); ok {
+		compactVal = compact
+	}
+	maxOutputCharsVal, _ := args["max_output_chars"].(float64)
+	if len(commandsInterface) > maxBatchCommands {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Batch supports at most %d commands", maxBatchCommands)}},
+			IsError: true,
+		}, nil, nil
+	}
 
 	commands := make([]string, len(commandsInterface))
 	for i, cmd := range commandsInterface {
@@ -263,9 +340,10 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 		}, nil, nil
 	}
 
+	var output string
 	// compact 模式：简洁输出
 	if compactVal {
-		output := "✓ Batch execution completed\n"
+		output = "✓ Batch execution completed\n"
 		output += fmt.Sprintf("  Total: %d | Success: %d | Failed: %d\n", summary.Total, summary.Success, summary.Failed)
 		if summary.Failed > 0 {
 			output += "\nFailed commands:\n"
@@ -275,30 +353,29 @@ func (s *Server) handleSSHExecBatch(ctx context.Context, req *mcp.CallToolReques
 				}
 			}
 		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: output}},
-		}, nil, nil
+	} else {
+		output = fmt.Sprintf("Batch Execution Summary:\n")
+		output += fmt.Sprintf("Total: %d, Success: %d, Failed: %d\n\n", summary.Total, summary.Success, summary.Failed)
+
+		for i, result := range results {
+			output += fmt.Sprintf("Command %d: %s\n", i+1, commands[i])
+			output += fmt.Sprintf("Exit Code: %d\n", result.ExitCode)
+			if result.Stdout != "" {
+				output += fmt.Sprintf("STDOUT: %s\n", result.Stdout)
+			}
+			if result.Stderr != "" {
+				output += fmt.Sprintf("STDERR: %s\n", result.Stderr)
+			}
+			output += "\n"
+		}
 	}
 
-	// 默认：详细输出
-	output := fmt.Sprintf("Batch Execution Summary:\n")
-	output += fmt.Sprintf("Total: %d, Success: %d, Failed: %d\n\n", summary.Total, summary.Success, summary.Failed)
-
-	for i, result := range results {
-		output += fmt.Sprintf("Command %d: %s\n", i+1, commands[i])
-		output += fmt.Sprintf("Exit Code: %d\n", result.ExitCode)
-		if result.Stdout != "" {
-			output += fmt.Sprintf("STDOUT: %s\n", result.Stdout)
-		}
-		if result.Stderr != "" {
-			output += fmt.Sprintf("STDERR: %s\n", result.Stderr)
-		}
-		output += "\n"
+	maxOutputChars := boundedOutputLimit(maxOutputCharsVal)
+	output, truncated := truncateText(output, maxOutputChars)
+	if truncated {
+		output += fmt.Sprintf("\nOutput truncated to %d characters.", maxOutputChars)
 	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: output}},
-	}, nil, nil
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: output}}}, nil, nil
 }
 
 // handleSSHShell handles the ssh_shell tool
@@ -316,19 +393,19 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 		}, nil, nil
 	}
 
-	rows := uint16(rowsVal)
-	cols := uint16(colsVal)
-	if rows == 0 {
-		rows = 40  // 默认 40 行，适合 htop
+	rows, err := terminalDimension("rows", rowsVal, 40, maxTerminalRows)
+	if err != nil {
+		return &mcp.CallToolResult{Content: formatError(err), IsError: true}, nil, nil
 	}
-	if cols == 0 {
-		cols = 160  // 默认 160 列，适合查看表格
+	cols, err := terminalDimension("cols", colsVal, 160, maxTerminalCols)
+	if err != nil {
+		return &mcp.CallToolResult{Content: formatError(err), IsError: true}, nil, nil
 	}
 
 	// 创建 Shell 配置（自动设置为 raw 模式）
 	config := sshmcp.DefaultShellConfig()
-	config.Mode = sshmcp.TerminalModeRaw  // 强制使用 raw 模式（交互式程序专用）
-	config.ANSIMode = sshmcp.ANSIRaw      // 保留 ANSI 序列（支持颜色和光标）
+	config.Mode = sshmcp.TerminalModeRaw // 强制使用 raw 模式（交互式程序专用）
+	config.ANSIMode = sshmcp.ANSIRaw     // 保留 ANSI 序列（支持颜色和光标）
 	// read_timeout 使用默认值 100ms
 
 	// 使用固定的终端类型
@@ -353,65 +430,16 @@ func (s *Server) handleSSHShell(ctx context.Context, req *mcp.CallToolRequest, a
 	// 获取会话状态
 	status := shellSession.GetStatus()
 
-	// ⚡ 立即返回，不等待输出（异步模式）
+	sessionRef := session.ID
+	if session.Alias != "" {
+		sessionRef = session.Alias
+	}
+
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{
-			Text: fmt.Sprintf(`✅ Shell 会话已启动（后台运行模式）
-
-📋 会话信息：
-- 会话 ID: %s
-- 模式: %s
-- 终端: %dx%d
-- ANSI 模式: %s
-%s
-💾 后台缓冲区：
-- 容量: %d 行 (~%d MB)
-- 状态: 输出持续读取中
-
-❤️ 保活机制（已启用）：
-- TCP Keepalive: 30秒间隔
-- SSH Keepalive: 30秒间隔
-- 应用层心跳: 60秒间隔
-
-🔧 后续操作指引：
-
-1️⃣ 发送命令（启动交互式程序）：
-   ssh_write_input(session_id="%s", input="htop")
-
-2️⃣ 查看界面：
-
-   a) 查看交互式程序界面（推荐）：
-      ssh_terminal_snapshot(session_id="%s")
-
-   b) 查看大量文本输出（日志等）：
-      ssh_read_output(session_id="%s", strategy="latest_lines", limit=50)
-
-3️⃣ 查看会话状态：
-   ssh_shell_status(session_id="%s")
-
-4️⃣ 退出交互式程序：
-   ssh_write_input(session_id="%s", special_char="ctrl+c")  # 中断程序
-
-💡 提示：
-- 本会话专门用于交互式程序（htop/vim/gdb/tmux）
-- 简单命令建议使用 ssh_exec，更高效
-- 使用 ssh_terminal_snapshot 查看完整的交互式界面
-- 会话在后台持续运行，随时可查看
-`,
-				func() string {
-					if session.Alias != "" {
-						return session.Alias
-					}
-					return sessionID
-				}(),
-				"raw",  // 固定为 raw 模式
-				cols, rows,
-				"raw",  // 固定为 raw ANSI 模式
-				workingDirMsg,
-				status.BufferTotal,
-				status.BufferTotal / 1024,  // 估算 KB
-				sessionID, sessionID, sessionID, sessionID),
-		}},
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(
+			"Shell started: session=%s, terminal=%dx%d, buffer=%d lines\n%sUse ssh_write_input to send input, ssh_read_output for text, or ssh_terminal_snapshot for TUI screens.",
+			sessionRef, cols, rows, status.BufferTotal, workingDirMsg,
+		)}},
 	}, nil, nil
 }
 
@@ -499,11 +527,71 @@ func (s *Server) handleSFTPDownload(ctx context.Context, req *mcp.CallToolReques
 	}, nil, nil
 }
 
+func copyToolArgs(args map[string]any) map[string]any {
+	copy := make(map[string]any, len(args)+2)
+	for key, value := range args {
+		copy[key] = value
+	}
+	return copy
+}
+
+// handleSFTPTransfer dispatches the compact files-profile transfer tool.
+func (s *Server) handleSFTPTransfer(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	operation, _ := args["operation"].(string)
+	normalized := copyToolArgs(args)
+	if _, found := normalized["create_dirs"]; !found {
+		normalized["create_dirs"] = true
+	}
+	if _, found := normalized["overwrite"]; !found {
+		normalized["overwrite"] = false
+	}
+
+	switch operation {
+	case "upload":
+		return s.handleSFTPUpload(ctx, req, normalized)
+	case "download":
+		return s.handleSFTPDownload(ctx, req, normalized)
+	default:
+		return &mcp.CallToolResult{Content: textContent("operation must be upload or download"), IsError: true}, nil, nil
+	}
+}
+
+// handleSFTPManage dispatches the compact files-profile directory tool.
+func (s *Server) handleSFTPManage(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	operation, _ := args["operation"].(string)
+	normalized := copyToolArgs(args)
+	remotePath, _ := normalized["remote_path"].(string)
+
+	switch operation {
+	case "list":
+		if remotePath == "" {
+			normalized["remote_path"] = "/"
+		}
+		return s.handleSFTPListDir(ctx, req, normalized)
+	case "mkdir":
+		if remotePath == "" {
+			return &mcp.CallToolResult{Content: textContent("remote_path is required for mkdir"), IsError: true}, nil, nil
+		}
+		if _, found := normalized["recursive"]; !found {
+			normalized["recursive"] = true
+		}
+		return s.handleSFTPMkdir(ctx, req, normalized)
+	case "delete":
+		if remotePath == "" {
+			return &mcp.CallToolResult{Content: textContent("remote_path is required for delete"), IsError: true}, nil, nil
+		}
+		return s.handleSFTPDelete(ctx, req, normalized)
+	default:
+		return &mcp.CallToolResult{Content: textContent("operation must be list, mkdir, or delete"), IsError: true}, nil, nil
+	}
+}
+
 // handleSFTPListDir handles the sftp_list_dir tool
 func (s *Server) handleSFTPListDir(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	sessionID, _ := args["session_id"].(string)
 	remotePath, _ := args["remote_path"].(string)
 	recursiveVal, _ := args["recursive"].(bool)
+	limitVal, _ := args["limit"].(float64)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -521,11 +609,25 @@ func (s *Server) handleSFTPListDir(ctx context.Context, req *mcp.CallToolRequest
 		}, nil, nil
 	}
 
+	limit := directoryEntryLimit(limitVal)
+	totalEntries := len(files)
+	truncated := totalEntries > limit
+	if truncated {
+		files = files[:limit]
+	}
+
 	output := fmt.Sprintf("Directory listing for: %s\n", remotePath)
-	output += fmt.Sprintf("Total entries: %d\n\n", len(files))
+	output += fmt.Sprintf("Showing %d of %d entries\n\n", len(files), totalEntries)
 
 	for _, file := range files {
 		output += fmt.Sprintf("- %s (%s, %d bytes)\n", file.Name, file.Type, file.Size)
+	}
+	if truncated {
+		output += fmt.Sprintf("\nResult truncated to %d entries. List a narrower path to inspect more.\n", limit)
+	}
+	output, outputTruncated := truncateText(output, defaultMaxOutputChars)
+	if outputTruncated {
+		output += fmt.Sprintf("\nOutput truncated to %d characters. List a narrower path to inspect more.", defaultMaxOutputChars)
 	}
 
 	return &mcp.CallToolResult{
@@ -538,7 +640,7 @@ func (s *Server) handleSFTPMkdir(ctx context.Context, req *mcp.CallToolRequest, 
 	sessionID, _ := args["session_id"].(string)
 	remotePath, _ := args["remote_path"].(string)
 	recursiveVal, _ := args["recursive"].(bool)
-	modeVal, _ := args["mode"].(float64)
+	modeText, _ := args["mode"].(string)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -548,9 +650,16 @@ func (s *Server) handleSFTPMkdir(ctx context.Context, req *mcp.CallToolRequest, 
 		}, nil, nil
 	}
 
-	mode := os.FileMode(modeVal)
-	if mode == 0 {
-		mode = 0755
+	mode := os.FileMode(0755)
+	if modeText != "" {
+		parsedMode, parseErr := strconv.ParseUint(modeText, 8, 32)
+		if parseErr != nil {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Invalid directory mode %q: use an octal value such as 0755", modeText)}},
+				IsError: true,
+			}, nil, nil
+		}
+		mode = os.FileMode(parsedMode)
 	}
 
 	err = session.MakeDirectory(remotePath, recursiveVal, mode)
@@ -682,6 +791,7 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 	sessionID, _ := args["session_id"].(string)
 	strategy, _ := args["strategy"].(string)
 	limitVal, _ := args["limit"].(float64)
+	maxOutputCharsVal, _ := args["max_output_chars"].(float64)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -720,29 +830,21 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 	// 根据 strategy 读取数据
 	var output string
 	var lineCount int
-	var byteCount int
 
 	switch strategy {
 	case "latest_lines":
 		lines := shellSession.OutputBuffer.ReadLatestLines(limit)
 		output = strings.Join(lines, "\n")
 		lineCount = len(lines)
-		if output != "" {
-			byteCount = len(output)
-		}
 
 	case "all_unread":
 		lines := shellSession.OutputBuffer.ReadAllUnread()
 		output = strings.Join(lines, "\n")
 		lineCount = len(lines)
-		if output != "" {
-			byteCount = len(output)
-		}
 
 	case "latest_bytes":
 		output = shellSession.OutputBuffer.ReadLatestBytes(limit)
 		if output != "" {
-			byteCount = len(output)
 			lineCount = len(strings.Split(output, "\n"))
 		}
 
@@ -756,59 +858,35 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 	// 重新获取状态（可能已更新）
 	status = shellSession.GetStatus()
 
+	maxOutputChars := boundedOutputLimit(maxOutputCharsVal)
+	output, truncated := truncateText(output, maxOutputChars)
+
 	// 计算缓冲区使用率
-	bufferPercent := float64(status.BufferUsed) / float64(status.BufferTotal) * 100
+	bufferPercent := 0.0
+	if status.BufferTotal > 0 {
+		bufferPercent = float64(status.BufferUsed) / float64(status.BufferTotal) * 100
+	}
 
 	// 构建返回消息
 	var result string
 	if output != "" {
-		result = fmt.Sprintf(`📄 输出读取结果
-
-读取策略: %s
-读取行数: %d
-读取字节数: %d
-剩余未读: %d 行
-
-💾 缓冲区状态：
-- 已用: %d/%d 行 (%.1f%%)
-
---- 输出内容 ---
-%s
---- 输出结束 ---
-
-💡 提示：
-- 如需查看更多输出，增加 limit 参数
-- 如需查看所有未读输出，使用 strategy="all_unread"
-- 查看详细状态：ssh_shell_status(session_id="%s")`,
+		result = fmt.Sprintf("Shell output: strategy=%s, lines=%d, chars=%d, buffer=%d/%d (%.1f%%)\n%s",
 			strategy,
 			lineCount,
-			byteCount,
-			status.BufferUsed,
+			len([]rune(output)),
 			status.BufferUsed,
 			status.BufferTotal,
 			bufferPercent,
-			output,
-			sessionID)
+			output)
+		if truncated {
+			result += fmt.Sprintf("\nOutput truncated to %d characters.", maxOutputChars)
+		}
 	} else {
-		result = fmt.Sprintf(`📄 输出读取结果
-
-读取策略: %s
-结果: 无新输出
-
-💾 缓冲区状态：
-- 已用: %d/%d 行 (%.1f%%)
-- 未读数据: 否
-
-💡 提示：
-- 暂无新输出，可能需要：
-  1. 等待程序产生输出
-  2. 发送命令或输入
-  3. 检查会话状态：ssh_shell_status(session_id="%s")`,
+		result = fmt.Sprintf("Shell output: strategy=%s, no new output, buffer=%d/%d (%.1f%%)",
 			strategy,
 			status.BufferUsed,
 			status.BufferTotal,
-			bufferPercent,
-			sessionID)
+			bufferPercent)
 	}
 
 	return &mcp.CallToolResult{
@@ -841,8 +919,14 @@ func (s *Server) handleSSHResizePty(ctx context.Context, req *mcp.CallToolReques
 		}, nil, nil
 	}
 
-	rows := uint16(rowsVal)
-	cols := uint16(colsVal)
+	rows, err := terminalDimension("rows", rowsVal, 0, maxTerminalRows)
+	if err != nil {
+		return &mcp.CallToolResult{Content: formatError(err), IsError: true}, nil, nil
+	}
+	cols, err := terminalDimension("cols", colsVal, 0, maxTerminalCols)
+	if err != nil {
+		return &mcp.CallToolResult{Content: formatError(err), IsError: true}, nil, nil
+	}
 
 	err = session.ShellSession.Resize(rows, cols)
 	if err != nil {
@@ -862,6 +946,7 @@ func (s *Server) handleSSHTerminalSnapshot(ctx context.Context, req *mcp.CallToo
 	sessionID, _ := args["session_id"].(string)
 	withColor, _ := args["with_color"].(bool)
 	includeCursorInfo, _ := args["include_cursor_info"].(bool)
+	maxOutputCharsVal, _ := args["max_output_chars"].(float64)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -889,6 +974,8 @@ func (s *Server) handleSSHTerminalSnapshot(ctx context.Context, req *mcp.CallToo
 	} else {
 		snapshot = session.ShellSession.GetTerminalSnapshot()
 	}
+	maxOutputChars := boundedOutputLimit(maxOutputCharsVal)
+	snapshot, truncated := truncateText(snapshot, maxOutputChars)
 
 	// Build result
 	result := fmt.Sprintf("📸 Terminal Snapshot for session %s\n\n", sessionID)
@@ -902,6 +989,9 @@ func (s *Server) handleSSHTerminalSnapshot(ctx context.Context, req *mcp.CallToo
 
 	result += "```\n"
 	result += snapshot
+	if truncated {
+		result += fmt.Sprintf("\n[Snapshot truncated to %d characters]", maxOutputChars)
+	}
 	result += "\n```"
 
 	return &mcp.CallToolResult{
@@ -999,12 +1089,12 @@ func (s *Server) handleSSHSaveHost(ctx context.Context, req *mcp.CallToolRequest
 	}
 
 	hostConfig := sshmcp.HostConfig{
-		Host:            host,
-		Port:            port,
-		Username:        username,
-		Password:        password,
-		PrivateKeyPath:  privateKeyPath,
-		Description:     description,
+		Host:           host,
+		Port:           port,
+		Username:       username,
+		Password:       password,
+		PrivateKeyPath: privateKeyPath,
+		Description:    description,
 	}
 
 	if err := s.hostManager.SaveHost(name, hostConfig); err != nil {
@@ -1170,7 +1260,6 @@ func (s *Server) handleSSHShellStatus(ctx context.Context, req *mcp.CallToolRequ
 func (s *Server) handleSSHHistory(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	sessionID, _ := args["session_id"].(string)
 	limitVal, _ := args["limit"].(float64)
-	sourceFilter, _ := args["source"].(string) // "exec", "shell", 或 "" (全部)
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
@@ -1184,56 +1273,32 @@ func (s *Server) handleSSHHistory(ctx context.Context, req *mcp.CallToolRequest,
 	history := session.CommandHistory
 	session.RUnlock()
 
-	// 根据 source 过滤
-	var filteredHistory []sshmcp.CommandHistoryEntry
-	if sourceFilter != "" {
-		for _, entry := range history {
-			if entry.Source == sourceFilter {
-				filteredHistory = append(filteredHistory, entry)
-			}
-		}
-	} else {
-		filteredHistory = history
-	}
-
 	limit := int(limitVal)
 	if limit <= 0 {
-		limit = len(filteredHistory)
+		limit = len(history)
 	}
 
 	// 获取最近的 N 条记录（从后往前）
-	start := len(filteredHistory) - limit
+	start := len(history) - limit
 	if start < 0 {
 		start = 0
 	}
-	recentHistory := filteredHistory[start:]
+	recentHistory := history[start:]
 
 	if len(recentHistory) == 0 {
-		sourceMsg := ""
-		if sourceFilter != "" {
-			sourceMsg = fmt.Sprintf(" (source: %s)", sourceFilter)
-		}
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("No command history yet%s. Execute some commands first using ssh_exec or ssh_exec_batch.\n", sourceMsg)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "No command history yet. Execute commands using ssh_exec or ssh_exec_batch.\n"}},
 		}, nil, nil
 	}
 
 	// 格式化输出
-	sourceInfo := ""
-	if sourceFilter != "" {
-		sourceInfo = fmt.Sprintf(" [source: %s]", sourceFilter)
-	}
-	output := fmt.Sprintf("Command History%s (showing %d of %d total):\n\n", sourceInfo, len(recentHistory), len(filteredHistory))
+	output := fmt.Sprintf("Command History (showing %d of %d total):\n\n", len(recentHistory), len(history))
 	for i, entry := range recentHistory {
 		status := "✓"
 		if !entry.Success {
 			status = "✗"
 		}
-		sourceLabel := entry.Source
-		if sourceLabel == "" {
-			sourceLabel = "unknown"
-		}
-		output += fmt.Sprintf("%d. [%s] %s [source: %s]\n", i+1, status, entry.Command, sourceLabel)
+		output += fmt.Sprintf("%d. [%s] %s\n", i+1, status, entry.Command)
 		output += fmt.Sprintf("   Exit Code: %d\n", entry.ExitCode)
 		output += fmt.Sprintf("   Time: %s\n", entry.Timestamp.Format("2006-01-02 15:04:05"))
 		output += fmt.Sprintf("   Duration: %s\n\n", entry.ExecutionTime)

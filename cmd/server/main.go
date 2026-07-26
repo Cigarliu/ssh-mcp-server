@@ -21,7 +21,7 @@ func main() {
 	}
 
 	// 创建 logger
-	logger, err := cfg.GetLogger()
+	logger, err := cfg.GetMCPLogger()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)
@@ -63,7 +63,7 @@ func main() {
 	hostManager := sshmcp.NewHostManager(hostsConfig, configPath, logger)
 
 	// 创建 MCP 服务器
-	mcpServer, err := mcp.NewServer(sessionManager, hostManager, logger)
+	mcpServer, err := mcp.NewServerWithProfile(sessionManager, hostManager, logger, cfg.Tools.Profile)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create MCP server")
 	}

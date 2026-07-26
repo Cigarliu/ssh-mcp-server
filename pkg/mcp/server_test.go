@@ -16,10 +16,10 @@ func TestNewServer(t *testing.T) {
 	logger := setupTestLogger()
 	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
 		MaxSessions:     10,
-		SessionTimeout:    5 * testMinute,
-		IdleTimeout:       2 * testMinute,
-		CleanupInterval:   10 * testSecond,
-		Logger:            logger,
+		SessionTimeout:  5 * testMinute,
+		IdleTimeout:     2 * testMinute,
+		CleanupInterval: 10 * testSecond,
+		Logger:          logger,
 	})
 
 	defer sessionManager.Close()
@@ -40,10 +40,10 @@ func TestServer_RegisterTools(t *testing.T) {
 	logger := setupTestLogger()
 	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
 		MaxSessions:     10,
-		SessionTimeout:    5 * testMinute,
-		IdleTimeout:       2 * testMinute,
-		CleanupInterval:   10 * testSecond,
-		Logger:            logger,
+		SessionTimeout:  5 * testMinute,
+		IdleTimeout:     2 * testMinute,
+		CleanupInterval: 10 * testSecond,
+		Logger:          logger,
 	})
 
 	defer sessionManager.Close()
@@ -58,15 +58,38 @@ func TestServer_RegisterTools(t *testing.T) {
 	assert.NotNil(t, server.GetMCPServer())
 }
 
+func TestParseToolProfile(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		want  ToolProfile
+		err   bool
+	}{
+		{input: "", want: ToolProfileCore},
+		{input: "core", want: ToolProfileCore},
+		{input: "files", want: ToolProfileFiles},
+		{input: "basic", want: ToolProfileFiles},
+		{input: " ADVANCED ", want: ToolProfileAdvanced},
+		{input: "unknown", err: true},
+	} {
+		got, err := parseToolProfile(tt.input)
+		if tt.err {
+			assert.Error(t, err)
+			continue
+		}
+		assert.NoError(t, err)
+		assert.Equal(t, tt.want, got)
+	}
+}
+
 // TestServer_Start tests starting the server
 func TestServer_Start(t *testing.T) {
 	logger := setupTestLogger()
 	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
 		MaxSessions:     10,
-		SessionTimeout:    5 * testMinute,
-		IdleTimeout:       2 * testMinute,
-		CleanupInterval:   10 * testSecond,
-		Logger:            logger,
+		SessionTimeout:  5 * testMinute,
+		IdleTimeout:     2 * testMinute,
+		CleanupInterval: 10 * testSecond,
+		Logger:          logger,
 	})
 
 	defer sessionManager.Close()
@@ -111,10 +134,10 @@ func TestHandleSSHConnect(t *testing.T) {
 	logger := setupTestLogger()
 	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
 		MaxSessions:     10,
-		SessionTimeout:    5 * testMinute,
-		IdleTimeout:       2 * testMinute,
-		CleanupInterval:   10 * testSecond,
-		Logger:            logger,
+		SessionTimeout:  5 * testMinute,
+		IdleTimeout:     2 * testMinute,
+		CleanupInterval: 10 * testSecond,
+		Logger:          logger,
 	})
 
 	defer sessionManager.Close()
@@ -126,11 +149,11 @@ func TestHandleSSHConnect(t *testing.T) {
 
 	// 测试无效的连接
 	args := map[string]any{
-		"host":       "invalid-host",
-		"port":       float64(22),
-		"username":   "testuser",
-		"auth_type":  "password",
-		"password":   "testpass",
+		"host":      "invalid-host",
+		"port":      float64(22),
+		"username":  "testuser",
+		"auth_type": "password",
+		"password":  "testpass",
 	}
 
 	result, output, err := server.handleSSHConnect(context.Background(), nil, args)
@@ -144,10 +167,10 @@ func TestHandleSSHDisconnect(t *testing.T) {
 	logger := setupTestLogger()
 	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
 		MaxSessions:     10,
-		SessionTimeout:    5 * testMinute,
-		IdleTimeout:       2 * testMinute,
-		CleanupInterval:   10 * testSecond,
-		Logger:            logger,
+		SessionTimeout:  5 * testMinute,
+		IdleTimeout:     2 * testMinute,
+		CleanupInterval: 10 * testSecond,
+		Logger:          logger,
 	})
 
 	defer sessionManager.Close()
@@ -173,10 +196,10 @@ func TestHandleSSHListSessions(t *testing.T) {
 	logger := setupTestLogger()
 	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
 		MaxSessions:     10,
-		SessionTimeout:    5 * testMinute,
-		IdleTimeout:       2 * testMinute,
-		CleanupInterval:   10 * testSecond,
-		Logger:            logger,
+		SessionTimeout:  5 * testMinute,
+		IdleTimeout:     2 * testMinute,
+		CleanupInterval: 10 * testSecond,
+		Logger:          logger,
 	})
 
 	defer sessionManager.Close()
@@ -244,9 +267,9 @@ func (w *mcpTestWriter) Write(p []byte) (n int, err error) {
 
 // Test constants
 const (
-	testSecond    = 1
+	testSecond      = 1
 	testMillisecond = 1_000_000
-	testMinute    = 60 * testSecond
+	testMinute      = 60 * testSecond
 )
 
 func init() {

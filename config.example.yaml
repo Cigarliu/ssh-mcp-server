@@ -21,9 +21,17 @@ sftp:
   chunk_size: 4194304
   transfer_timeout: 5m
 
+# core: 8 transport-neutral tools; files: core plus 2 SFTP tools; advanced: all 27 migration and diagnostic tools
+tools:
+  profile: core
+
+# Serial devices are opened on demand with connection_open(transport="serial").
+# On Linux, run the server as an account permitted to open the device (commonly
+# the dialout group), or launch the service with the necessary device access.
+
 # Predefined hosts for quick connection
-# You can reference these hosts by name when connecting using ssh_connect
-# Example: ssh_connect(hostname="prod") instead of specifying host, port, username, etc.
+# You can reference these hosts by name with connection_open(hostname="prod").
+# connection_list returns the saved host names without exposing credentials.
 hosts:
   prod:
     host: "192.168.1.100"
@@ -45,4 +53,4 @@ hosts:
 logging:
   level: info  # debug, info, warn, error
   format: console  # json, console
-  output: stdout  # stdout, stderr, or file path
+  output: stderr  # stdout is reserved for MCP protocol messages

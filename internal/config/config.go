@@ -17,6 +17,7 @@ type Config struct {
 	SSH     SSHConfig     `mapstructure:"ssh"`
 	Session SessionConfig `mapstructure:"session"`
 	SFTP    SFTPConfig    `mapstructure:"sftp"`
+	Tools   ToolConfig    `mapstructure:"tools"`
 	Hosts   HostsConfig   `mapstructure:"hosts"`
 	Logging logger.Config `mapstructure:"logging"`
 }
@@ -48,6 +49,11 @@ type SFTPConfig struct {
 	MaxFileSize     int64         `mapstructure:"max_file_size"`
 	ChunkSize       int64         `mapstructure:"chunk_size"`
 	TransferTimeout time.Duration `mapstructure:"transfer_timeout"`
+}
+
+// ToolConfig controls which MCP tools are exposed to the client.
+type ToolConfig struct {
+	Profile string `mapstructure:"profile"`
 }
 
 // HostConfig represents a predefined SSH host configuration
@@ -174,6 +180,10 @@ sftp:
   chunk_size: 4194304        # 4MB in bytes
   transfer_timeout: 5m
 
+# core exposes the eight primary remote-operation tools. Use files for compact SFTP tools or advanced for all tools.
+tools:
+  profile: core
+
 # Predefined hosts for quick connection
 # You can reference these hosts by name when connecting
 hosts:
@@ -188,7 +198,7 @@ hosts:
 logging:
   level: info  # debug, info, warn, error
   format: console  # json, console
-  output: stdout
+  output: stderr
 `
 
 	// 写入配置文件
@@ -218,17 +228,25 @@ func setDefaults() {
 	viper.SetDefault("session.cleanup_interval", "1m")
 
 	// SFTP
-	viper.SetDefault("sftp.max_file_size", "1GB")
-	viper.SetDefault("sftp.chunk_size", "4MB")
+	viper.SetDefault("sftp.max_file_size", int64(1073741824))
+	viper.SetDefault("sftp.chunk_size", int64(4194304))
 	viper.SetDefault("sftp.transfer_timeout", "5m")
+
+	// Tools
+	viper.SetDefault("tools.profile", "core")
 
 	// Logging
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.format", "console")
-	viper.SetDefault("logging.output", "stdout")
+	viper.SetDefault("logging.output", "stderr")
 }
 
 // GetLogger creates a logger from the logging configuration
 func (c *Config) GetLogger() (*zerolog.Logger, error) {
 	return logger.NewLogger(c.Logging)
+}
+
+// GetMCPLogger creates a logger that preserves stdout for the MCP protocol.
+func (c *Config) GetMCPLogger() (*zerolog.Logger, error) {
+	return logger.NewMCPLogger(c.Logging)
 }

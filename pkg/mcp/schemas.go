@@ -5,10 +5,135 @@ package mcp
 // getCommonJSONSchema creates a common JSON schema structure
 func getCommonJSONSchema(properties map[string]any, required []string) map[string]any {
 	return map[string]any{
-		"type":     "object",
+		"type":       "object",
 		"properties": properties,
-		"required": required,
+		"required":   required,
 	}
+}
+
+func connectionOpenSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"transport":     map[string]any{"type": "string", "enum": []string{"ssh", "serial"}, "description": "Connection transport."},
+		"hostname":      map[string]any{"type": "string", "description": "Saved SSH host name. Use connection_list to discover saved hosts."},
+		"host":          map[string]any{"type": "string", "description": "SSH host when transport is ssh."},
+		"port":          map[string]any{"type": "integer", "default": 22, "description": "SSH port when transport is ssh."},
+		"username":      map[string]any{"type": "string", "description": "SSH username when transport is ssh."},
+		"password":      map[string]any{"type": "string", "description": "SSH password when transport is ssh."},
+		"private_key":   map[string]any{"type": "string", "description": "SSH private key path when transport is ssh."},
+		"passphrase":    map[string]any{"type": "string", "description": "Optional private-key passphrase."},
+		"sudo_password": map[string]any{"type": "string", "description": "Optional password supplied to sudo commands executed through SSH."},
+		"alias":         map[string]any{"type": "string", "description": "Optional SSH connection alias."},
+		"device":        map[string]any{"type": "string", "description": "Serial device path when transport is serial, for example /dev/ttyUSB0."},
+		"baud_rate":     map[string]any{"type": "integer", "default": 115200, "minimum": 1, "maximum": 4000000},
+		"data_bits":     map[string]any{"type": "integer", "default": 8, "enum": []int{5, 6, 7, 8}},
+		"parity":        map[string]any{"type": "string", "default": "none", "enum": []string{"none", "odd", "even", "mark", "space"}},
+		"stop_bits":     map[string]any{"type": "string", "default": "1", "enum": []string{"1", "1.5", "2"}},
+	}, []string{"transport"})
+}
+
+func connectionOpenOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"connection_id": map[string]any{"type": "string"},
+		"transport":     map[string]any{"type": "string"},
+		"capabilities":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}, []string{"connection_id", "transport", "capabilities"})
+}
+
+func connectionCloseSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{"connection_id": map[string]any{"type": "string"}}, []string{"connection_id"})
+}
+
+func connectionCloseOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{"connection_id": map[string]any{"type": "string"}, "closed": map[string]any{"type": "boolean"}}, []string{"connection_id", "closed"})
+}
+
+func connectionListSchema() map[string]any { return getCommonJSONSchema(map[string]any{}, []string{}) }
+
+func connectionListOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"connections":     map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"saved_ssh_hosts": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+		"serial_ports":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+	}, []string{"connections", "saved_ssh_hosts", "serial_ports"})
+}
+
+func terminalOpenSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"connection_id": map[string]any{"type": "string", "description": "An open SSH or serial connection."},
+		"profile":       map[string]any{"type": "string", "enum": []string{"shell", "repl", "tui"}, "default": "shell"},
+		"working_dir":   map[string]any{"type": "string", "description": "Optional initial directory for SSH shell and repl profiles."},
+		"rows":          map[string]any{"type": "integer", "default": 40, "minimum": 1, "maximum": 100},
+		"cols":          map[string]any{"type": "integer", "default": 160, "minimum": 1, "maximum": 240},
+	}, []string{"connection_id"})
+}
+
+func terminalOpenOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"terminal_id":   map[string]any{"type": "string"},
+		"connection_id": map[string]any{"type": "string"},
+		"transport":     map[string]any{"type": "string"},
+		"screen":        map[string]any{"type": "boolean"},
+		"start_offset":  map[string]any{"type": "integer"},
+		"end_offset":    map[string]any{"type": "integer"},
+	}, []string{"terminal_id", "connection_id", "transport", "screen", "start_offset", "end_offset"})
+}
+
+func terminalInteractSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"terminal_id": map[string]any{"type": "string"},
+		"input":       map[string]any{"type": "string", "default": "", "description": "Input to send. For read-only replay, omit input and set from_offset."},
+		"input_mode":  map[string]any{"type": "string", "enum": []string{"raw", "line", "key"}, "default": "raw"},
+		"wait":        map[string]any{"type": "string", "enum": []string{"none", "prompt", "pattern", "quiet", "screen_stable"}, "default": "quiet"},
+		"pattern":     map[string]any{"type": "string", "description": "Literal prompt or pattern required by wait=prompt or wait=pattern."},
+		"quiet_ms":    map[string]any{"type": "integer", "default": 150, "minimum": 1, "maximum": 10000},
+		"timeout_ms":  map[string]any{"type": "integer", "default": 3000, "minimum": 1, "maximum": 60000},
+		"max_bytes":   map[string]any{"type": "integer", "default": 16384, "minimum": 1, "maximum": 65536},
+		"from_offset": map[string]any{"type": "integer", "minimum": 0, "description": "Replay from a prior result offset without destructive reads."},
+	}, []string{"terminal_id"})
+}
+
+func terminalInteractOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"state":              map[string]any{"type": "string", "enum": []string{"complete", "matched", "stable", "limit_reached", "timeout", "closed"}},
+		"stop_reason":        map[string]any{"type": "string"},
+		"data":               map[string]any{"type": "string"},
+		"encoding":           map[string]any{"type": "string", "enum": []string{"utf8", "base64"}},
+		"matched":            map[string]any{"type": "boolean"},
+		"from_offset":        map[string]any{"type": "integer"},
+		"next_offset":        map[string]any{"type": "integer"},
+		"start_offset":       map[string]any{"type": "integer"},
+		"end_offset":         map[string]any{"type": "integer"},
+		"bytes_read":         map[string]any{"type": "integer"},
+		"bytes_lost":         map[string]any{"type": "integer"},
+		"buffered_remaining": map[string]any{"type": "integer"},
+		"truncated":          map[string]any{"type": "boolean"},
+		"elapsed_ms":         map[string]any{"type": "integer"},
+	}, []string{"state", "stop_reason", "data", "encoding", "matched", "from_offset", "next_offset", "start_offset", "end_offset", "bytes_read", "bytes_lost", "buffered_remaining", "truncated", "elapsed_ms"})
+}
+
+func terminalViewSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"terminal_id": map[string]any{"type": "string"},
+		"max_chars":   map[string]any{"type": "integer", "default": 8000, "minimum": 1, "maximum": 12000},
+	}, []string{"terminal_id"})
+}
+
+func terminalViewOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"screen":      map[string]any{"type": "string"},
+		"screen_hash": map[string]any{"type": "string"},
+		"cursor":      map[string]any{"type": "object"},
+		"size":        map[string]any{"type": "object"},
+		"truncated":   map[string]any{"type": "boolean"},
+	}, []string{"screen", "screen_hash", "cursor", "size", "truncated"})
+}
+
+func terminalCloseSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{"terminal_id": map[string]any{"type": "string"}}, []string{"terminal_id"})
+}
+
+func terminalCloseOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{"terminal_id": map[string]any{"type": "string"}, "closed": map[string]any{"type": "boolean"}}, []string{"terminal_id", "closed"})
 }
 
 // sshConnectSchema returns the input schema for ssh_connect
@@ -33,8 +158,8 @@ func sshConnectSchema() map[string]any {
 		},
 		"auth_type": map[string]any{
 			"type":        "string",
-			"description": "认证类型: password, private_key, ssh_agent（使用 hostname 时会从配置读取）",
-			"enum":        []string{"password", "private_key", "ssh_agent"},
+			"description": "认证类型：password 或 private_key（使用 hostname 时会从配置读取）",
+			"enum":        []string{"password", "private_key"},
 			"default":     "password",
 		},
 		"password": map[string]any{
@@ -95,7 +220,25 @@ func sshExecSchema() map[string]any {
 			"type":        "string",
 			"description": "工作目录（可选）",
 		},
+		"max_output_chars": map[string]any{
+			"type":        "integer",
+			"description": "返回给模型的 stdout 和 stderr 总字符上限，默认 12000",
+			"default":     12000,
+			"minimum":     1,
+			"maximum":     12000,
+		},
 	}, []string{"session_id", "command"})
+}
+
+// sshExecOutputSchema returns the structured output schema for ssh_exec.
+func sshExecOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"exit_code":      map[string]any{"type": "integer"},
+		"stdout":         map[string]any{"type": "string"},
+		"stderr":         map[string]any{"type": "string"},
+		"execution_time": map[string]any{"type": "string"},
+		"truncated":      map[string]any{"type": "boolean"},
+	}, []string{"exit_code", "stdout", "stderr", "execution_time", "truncated"})
 }
 
 // sshExecBatchSchema returns the input schema for ssh_exec_batch
@@ -108,6 +251,7 @@ func sshExecBatchSchema() map[string]any {
 		"commands": map[string]any{
 			"type":        "array",
 			"description": "命令列表",
+			"maxItems":    20,
 			"items": map[string]any{
 				"type": "string",
 			},
@@ -124,8 +268,15 @@ func sshExecBatchSchema() map[string]any {
 		},
 		"compact": map[string]any{
 			"type":        "boolean",
-			"description": "简洁输出模式，只显示摘要和失败的命令，默认 false",
-			"default":     false,
+			"description": "简洁输出模式，只显示摘要和失败的命令，默认 true",
+			"default":     true,
+		},
+		"max_output_chars": map[string]any{
+			"type":        "integer",
+			"description": "详细输出时返回给模型的最大字符数，默认 12000",
+			"default":     12000,
+			"minimum":     1,
+			"maximum":     12000,
 		},
 	}, []string{"session_id", "commands"})
 }
@@ -139,13 +290,17 @@ func sshShellSchema() map[string]any {
 		},
 		"rows": map[string]any{
 			"type":        "integer",
-			"description": "终端行数，默认 40。建议值：40 行适合 htop/top，50 行适合 vim",
+			"description": "终端行数，默认 40，最大 100",
 			"default":     40,
+			"minimum":     1,
+			"maximum":     100,
 		},
 		"cols": map[string]any{
 			"type":        "integer",
-			"description": "终端列数，默认 160。建议值：120 列适合大多数场景，160 列适合查看表格数据",
+			"description": "终端列数，默认 160，最大 240",
 			"default":     160,
+			"minimum":     1,
+			"maximum":     240,
 		},
 		"working_dir": map[string]any{
 			"type":        "string",
@@ -210,6 +365,75 @@ func sftpDownloadSchema() map[string]any {
 	}, []string{"session_id", "remote_path", "local_path"})
 }
 
+// sftpTransferSchema returns the task-oriented schema used by the files profile.
+func sftpTransferSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"session_id": map[string]any{
+			"type":        "string",
+			"description": "会话 ID 或别名",
+		},
+		"operation": map[string]any{
+			"type":        "string",
+			"description": "传输方向",
+			"enum":        []string{"upload", "download"},
+		},
+		"local_path": map[string]any{
+			"type":        "string",
+			"description": "本地文件路径",
+		},
+		"remote_path": map[string]any{
+			"type":        "string",
+			"description": "远程文件路径",
+		},
+		"create_dirs": map[string]any{
+			"type":        "boolean",
+			"description": "不存在时创建目标目录，默认 true",
+			"default":     true,
+		},
+		"overwrite": map[string]any{
+			"type":        "boolean",
+			"description": "覆盖同名文件，默认 false",
+			"default":     false,
+		},
+	}, []string{"session_id", "operation", "local_path", "remote_path"})
+}
+
+// sftpManageSchema returns the task-oriented schema used by the files profile.
+func sftpManageSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"session_id": map[string]any{
+			"type":        "string",
+			"description": "会话 ID 或别名",
+		},
+		"operation": map[string]any{
+			"type":        "string",
+			"description": "目录或路径操作",
+			"enum":        []string{"list", "mkdir", "delete"},
+		},
+		"remote_path": map[string]any{
+			"type":        "string",
+			"description": "远程路径；list 省略时使用 /",
+		},
+		"recursive": map[string]any{
+			"type":        "boolean",
+			"description": "递归列出、创建或删除，默认 false；mkdir 省略时默认 true",
+			"default":     false,
+		},
+		"limit": map[string]any{
+			"type":        "integer",
+			"description": "list 最多返回的目录项，默认 100，最大 200",
+			"default":     100,
+			"minimum":     1,
+			"maximum":     200,
+		},
+		"mode": map[string]any{
+			"type":        "string",
+			"description": "mkdir 的八进制权限，默认 0755",
+			"default":     "0755",
+		},
+	}, []string{"session_id", "operation"})
+}
+
 // sftpListDirSchema returns the input schema for sftp_list_dir
 func sftpListDirSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
@@ -226,6 +450,13 @@ func sftpListDirSchema() map[string]any {
 			"type":        "boolean",
 			"description": "是否递归列出，默认 false",
 			"default":     false,
+		},
+		"limit": map[string]any{
+			"type":        "integer",
+			"description": "最多返回的目录项数量，默认 100，最大 200",
+			"default":     100,
+			"minimum":     1,
+			"maximum":     200,
 		},
 	}, []string{"session_id"})
 }
@@ -296,7 +527,7 @@ func sshWriteInputSchema() map[string]any {
 func sshReadOutputSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"session_id": map[string]any{
-			"type": "string",
+			"type":        "string",
 			"description": "会话 ID 或别名",
 		},
 		"strategy": map[string]any{
@@ -307,7 +538,7 @@ func sshReadOutputSchema() map[string]any {
 - "latest_bytes"：读取最新 N 字节
 
 推荐使用 "latest_lines" + limit=20-50 获取最新输出`,
-			"enum": []string{"latest_lines", "all_unread", "latest_bytes"},
+			"enum":    []string{"latest_lines", "all_unread", "latest_bytes"},
 			"default": "latest_lines",
 		},
 		"limit": map[string]any{
@@ -318,6 +549,14 @@ func sshReadOutputSchema() map[string]any {
 
 建议：日常使用 20-50 行，查看大量输出时可增加到 100-200`,
 			"default": 20,
+			"minimum": 1,
+		},
+		"max_output_chars": map[string]any{
+			"type":        "integer",
+			"description": "返回给模型的最大字符数，默认 12000",
+			"default":     12000,
+			"minimum":     1,
+			"maximum":     12000,
 		},
 	}, []string{"session_id"})
 }
@@ -331,11 +570,15 @@ func sshResizePtySchema() map[string]any {
 		},
 		"rows": map[string]any{
 			"type":        "integer",
-			"description": "终端行数",
+			"description": "终端行数，最大 100",
+			"minimum":     1,
+			"maximum":     100,
 		},
 		"cols": map[string]any{
 			"type":        "integer",
-			"description": "终端列数",
+			"description": "终端列数，最大 240",
+			"minimum":     1,
+			"maximum":     240,
 		},
 	}, []string{"session_id", "rows", "cols"})
 }
@@ -356,6 +599,13 @@ func sshTerminalSnapshotSchema() map[string]any {
 			"type":        "boolean",
 			"description": "是否包含光标位置信息（默认 false）",
 			"default":     false,
+		},
+		"max_output_chars": map[string]any{
+			"type":        "integer",
+			"description": "返回给模型的最大字符数，默认 12000",
+			"default":     12000,
+			"minimum":     1,
+			"maximum":     12000,
 		},
 	}, []string{"session_id"})
 }
@@ -431,11 +681,6 @@ func sshHistorySchema() map[string]any {
 			"type":        "integer",
 			"description": "返回的最大历史记录数，默认 10。设置为 0 返回所有历史记录",
 			"default":     10,
-		},
-		"source": map[string]any{
-			"type":        "string",
-			"description": "过滤命令来源：'exec' (ssh_exec执行的命令), 'shell' (交互式shell中的命令), 或留空显示所有",
-			"default":     "",
 		},
 	}, []string{"session_id"})
 }

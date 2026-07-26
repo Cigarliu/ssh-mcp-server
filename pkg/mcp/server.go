@@ -3,10 +3,22 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/cigar/sshmcp/pkg/serialmcp"
 	"github.com/cigar/sshmcp/pkg/sshmcp"
+	"github.com/cigar/sshmcp/pkg/terminal"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rs/zerolog"
+)
+
+// ToolProfile controls the amount of MCP surface exposed to a model.
+type ToolProfile string
+
+const (
+	ToolProfileCore     ToolProfile = "core"
+	ToolProfileFiles    ToolProfile = "files"
+	ToolProfileAdvanced ToolProfile = "advanced"
 )
 
 // Server wraps the MCP server
@@ -14,248 +26,192 @@ type Server struct {
 	mcpServer      *mcp.Server
 	sessionManager *sshmcp.SessionManager
 	hostManager    *sshmcp.HostManager
+	serialManager  *serialmcp.Manager
+	terminals      *terminal.Registry
 	logger         *zerolog.Logger
 }
 
 // NewServer creates a new MCP server
 func NewServer(sessionManager *sshmcp.SessionManager, hostManager *sshmcp.HostManager, logger *zerolog.Logger) (*Server, error) {
-	// 创建 MCP 服务器 - 使用正确的 API
+	return NewServerWithProfile(sessionManager, hostManager, logger, string(ToolProfileCore))
+}
+
+// NewServerWithProfile creates an MCP server with the requested tool profile.
+func NewServerWithProfile(sessionManager *sshmcp.SessionManager, hostManager *sshmcp.HostManager, logger *zerolog.Logger, profileName string) (*Server, error) {
+	profile, err := parseToolProfile(profileName)
+	if err != nil {
+		return nil, err
+	}
+
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "ssh-mcp-server",
 		Version: "1.0.0",
-	}, nil)
+	}, &mcp.ServerOptions{
+		Instructions: toolInstructions(profile),
+	})
 
 	s := &Server{
 		mcpServer:      mcpServer,
 		sessionManager: sessionManager,
 		hostManager:    hostManager,
+		serialManager:  serialmcp.NewManager(),
+		terminals:      terminal.NewRegistry(),
 		logger:         logger,
 	}
 
-	// 注册 Tools
-	s.registerTools()
+	s.registerTools(profile)
 
 	return s, nil
 }
 
+func parseToolProfile(profileName string) (ToolProfile, error) {
+	switch ToolProfile(strings.ToLower(strings.TrimSpace(profileName))) {
+	case "", ToolProfileCore:
+		return ToolProfileCore, nil
+	case ToolProfileFiles, "basic":
+		return ToolProfileFiles, nil
+	case ToolProfileAdvanced:
+		return ToolProfileAdvanced, nil
+	default:
+		return "", fmt.Errorf("unknown tool profile %q: use core, files, or advanced", profileName)
+	}
+}
+
+func toolInstructions(profile ToolProfile) string {
+	instructions := "Use connection_open to create an SSH or serial connection. Use ssh_exec only for non-interactive SSH commands. For any continuous terminal or REPL, call terminal_open then terminal_interact; every terminal result reports a completion state, bounded output, and stream offsets. Use terminal_view only for TUI screens."
+	switch profile {
+	case ToolProfileCore:
+		return instructions + " This server uses the core profile; file transfer and advanced session controls are unavailable."
+	case ToolProfileFiles:
+		return instructions + " This server uses the files profile; use sftp_transfer for upload/download and sftp_manage for directory operations."
+	default:
+		return instructions
+	}
+}
+
 // registerTools registers all SSH MCP tools
-func (s *Server) registerTools() {
-	// 连接管理工具
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_connect",
-		Description: "建立 SSH 连接并创建会话",
-		InputSchema: sshConnectSchema(),
-	}, s.handleSSHConnect)
+func (s *Server) registerTools(profile ToolProfile) {
+	// Core tools are deliberately transport-neutral after connection bootstrap.
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_open", Description: "Open an SSH or serial connection and return its capabilities. For saved SSH hosts, pass hostname from connection_list instead of credentials.", InputSchema: connectionOpenSchema(), OutputSchema: connectionOpenOutputSchema()}, s.handleConnectionOpen)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_close", Description: "Close an SSH or serial connection and any terminal attached to it.", InputSchema: connectionCloseSchema(), OutputSchema: connectionCloseOutputSchema()}, s.handleConnectionClose)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_list", Description: "List active connections and locally discoverable serial devices.", InputSchema: connectionListSchema(), OutputSchema: connectionListOutputSchema()}, s.handleConnectionList)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_open", Description: "Create a transport-neutral terminal session on an open connection. Use profile shell or repl for text prompts and tui for full-screen programs.", InputSchema: terminalOpenSchema(), OutputSchema: terminalOpenOutputSchema()}, s.handleTerminalOpen)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_interact", Description: "Atomically capture an output cursor, send terminal input, and wait for a prompt, pattern, quiet period, or stable screen. Decide next actions from state and stop_reason; never blindly retry a timeout.", InputSchema: terminalInteractSchema(), OutputSchema: terminalInteractOutputSchema()}, s.handleTerminalInteract)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_view", Description: "Read the current projected screen for a TUI terminal. It is not for normal command output.", InputSchema: terminalViewSchema(), OutputSchema: terminalViewOutputSchema()}, s.handleTerminalView)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_close", Description: "Close a terminal session. SSH connections remain available for ssh_exec; serial terminals also release their serial port.", InputSchema: terminalCloseSchema(), OutputSchema: terminalCloseOutputSchema()}, s.handleTerminalClose)
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_disconnect",
-		Description: "断开 SSH 会话",
-		InputSchema: sshDisconnectSchema(),
-	}, s.handleSSHDisconnect)
+	// Legacy transport-specific controls remain available only for migration and
+	// diagnostic work in the advanced profile.
+	if profile == ToolProfileAdvanced {
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_connect",
+			Description: "建立 SSH 连接并创建会话",
+			InputSchema: sshConnectSchema(),
+		}, s.handleSSHConnect)
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_list_sessions",
-		Description: "列出所有活跃会话",
-		InputSchema: sshListSessionsSchema(),
-	}, s.handleSSHListSessions)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_disconnect",
+			Description: "断开 SSH 会话",
+			InputSchema: sshDisconnectSchema(),
+		}, s.handleSSHDisconnect)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_list_sessions",
+			Description: "列出所有活跃会话",
+			InputSchema: sshListSessionsSchema(),
+		}, s.handleSSHListSessions)
+	}
 
 	// 命令执行工具
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_exec",
-		Description: `执行单条命令并返回结果（推荐用于大多数场景）。
-
-✅ 适用场景：
-- 一次性命令：ls、cat、grep、ps、df -h、uptime 等
-- 不需要保持上下文的独立命令
-- 批量执行独立命令：使用 ssh_exec_batch
-
-⚡ 优势：
-- 比 ssh_shell(cooked) 更高效
-- 自动获取完整输出和退出码
-- 不会卡住
-- 有超时保护
-- 支持工作目录设置（working_dir）
-
-❌ 不要使用场景：
-- 需要保持环境变量或目录状态 → 使用 ssh_shell
-- 运行交互式程序（vim、top、htop、gdb）→ 使用 ssh_shell(mode=raw)`,
-		InputSchema: sshExecSchema(),
+		Name:         "ssh_exec",
+		Description:  "执行非交互式 SSH 命令或脚本。普通运维任务优先使用；仅 TUI/交互程序使用 terminal_open。",
+		InputSchema:  sshExecSchema(),
+		OutputSchema: sshExecOutputSchema(),
 	}, s.handleSSHExec)
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_exec_batch",
-		Description: "批量执行命令",
-		InputSchema: sshExecBatchSchema(),
-	}, s.handleSSHExecBatch)
+	if profile == ToolProfileAdvanced {
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_exec_batch",
+			Description: "顺序执行多个独立命令；默认仅返回摘要和失败项。",
+			InputSchema: sshExecBatchSchema(),
+		}, s.handleSSHExecBatch)
+	}
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "ssh_shell",
-		Description: `启动交互式 shell 会话（仅用于交互式程序）。
+	if profile == ToolProfileAdvanced {
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_shell",
+			Description: "Legacy: create a raw SSH shell. Prefer terminal_open in new integrations.",
+			InputSchema: sshShellSchema(),
+		}, s.handleSSHShell)
+	}
 
-⚠️ 重要提示：
-- 如果只是执行简单命令（ls/cat/grep/ps 等），请使用 ssh_exec，更高效且不会卡住
-- ssh_shell 专门用于交互式程序（htop/vim/gdb/tmux 等）
+	// 文件工具在 files profile 中按任务合并，在 advanced profile 中保留细粒度接口。
+	if profile == ToolProfileFiles {
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "sftp_transfer",
+			Description: "上传或下载文件。operation 为 upload 或 download。",
+			InputSchema: sftpTransferSchema(),
+		}, s.handleSFTPTransfer)
 
-✅ 适用场景：
-- 运行全屏交互式程序（htop、top、vim、nano、gdb）
-- 需要 TUI 界面的程序（tmux、screen、docker pull）
-- 查看实时进度（ping、traceroute）
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "sftp_manage",
+			Description: "列目录、创建目录或删除远程路径。operation 为 list、mkdir 或 delete。",
+			InputSchema: sftpManageSchema(),
+		}, s.handleSFTPManage)
+	}
+	if profile == ToolProfileAdvanced {
+		mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "sftp_upload", Description: "上传文件到远程", InputSchema: sftpUploadSchema()}, s.handleSFTPUpload)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "sftp_download", Description: "从远程下载文件", InputSchema: sftpDownloadSchema()}, s.handleSFTPDownload)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "sftp_list_dir", Description: "列出远程目录", InputSchema: sftpListDirSchema()}, s.handleSFTPListDir)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "sftp_mkdir", Description: "创建远程目录", InputSchema: sftpMkdirSchema()}, s.handleSFTPMkdir)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "sftp_delete", Description: "删除远程文件或目录", InputSchema: sftpDeleteSchema()}, s.handleSFTPDelete)
+	}
 
-❌ 不要使用场景：
-- 简单命令 → 用 ssh_exec
-- 批量命令 → 用 ssh_exec_batch
-- 查看日志 → 用 ssh_exec
+	if profile == ToolProfileAdvanced {
+		// Legacy shell interaction tools.
+		mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "ssh_write_input", Description: "Legacy: write input to an SSH shell.", InputSchema: sshWriteInputSchema()}, s.handleSSHWriteInput)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "ssh_read_output", Description: "Legacy: read the SSH shell line buffer.", InputSchema: sshReadOutputSchema()}, s.handleSSHReadOutput)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_resize_pty",
+			Description: "调整已启动交互式终端的尺寸。",
+			InputSchema: sshResizePtySchema(),
+		}, s.handleSSHResizePty)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_terminal_snapshot",
+			Description: "Legacy: return an SSH terminal screen.",
+			InputSchema: sshTerminalSnapshotSchema(),
+		}, s.handleSSHTerminalSnapshot)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_shell_status",
+			Description: "查询交互式 shell 的活动状态和缓冲区信息。",
+			InputSchema: sshShellStatusSchema(),
+		}, s.handleSSHShellStatus)
 
-💡 使用流程：
-1. ssh_shell() - 启动交互式会话（自动使用 raw 模式）
-2. ssh_write_input() - 发送命令（如 "htop"）
-3. ssh_terminal_snapshot() - 查看完整界面
-4. ssh_write_input(special_char="ctrl+c") - 退出程序`,
-		InputSchema: sshShellSchema(),
-	}, s.handleSSHShell)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_history",
+			Description: "查看通过 ssh_exec 和 ssh_exec_batch 执行的命令历史。",
+			InputSchema: sshHistorySchema(),
+		}, s.handleSSHHistory)
+	}
 
-	// 文件传输工具
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "sftp_upload",
-		Description: "上传文件到远程",
-		InputSchema: sftpUploadSchema(),
-	}, s.handleSFTPUpload)
+	if profile == ToolProfileAdvanced {
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_list_hosts",
+			Description: "List predefined SSH host configurations.",
+			InputSchema: sshListHostsSchema(),
+		}, s.handleSSHListHosts)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_save_host",
+			Description: "持久化保存主机连接配置。",
+			InputSchema: sshSaveHostSchema(),
+		}, s.handleSSHSaveHost)
 
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "sftp_download",
-		Description: "从远程下载文件",
-		InputSchema: sftpDownloadSchema(),
-	}, s.handleSFTPDownload)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "sftp_list_dir",
-		Description: "列出远程目录",
-		InputSchema: sftpListDirSchema(),
-	}, s.handleSFTPListDir)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "sftp_mkdir",
-		Description: "创建远程目录",
-		InputSchema: sftpMkdirSchema(),
-	}, s.handleSFTPMkdir)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "sftp_delete",
-		Description: "删除远程文件或目录",
-		InputSchema: sftpDeleteSchema(),
-	}, s.handleSFTPDelete)
-
-	// 会话交互工具
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_write_input",
-		Description: "向交互式会话写入输入",
-		InputSchema: sshWriteInputSchema(),
-	}, s.handleSSHWriteInput)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_read_output",
-		Description: `读取会话的大量文本输出（从输出缓冲区）。
-
-⚠️ 与 ssh_terminal_snapshot 的区别：
-- ssh_read_output：读取大量文本（10000+ 行），适合查看日志、编译输出
-- ssh_terminal_snapshot：查看当前屏幕（30 行），适合查看交互式程序界面
-
-✅ 使用场景：
-- 查看超过屏幕大小的输出（100+ 行）
-- 读取日志文件（journalctl -n 1000、tail -f）
-- 查看编译/构建输出（make、npm install）
-- 需要追溯历史命令输出
-- 读取命令执行结果（cat、grep、find）
-
-❌ 不要使用场景：
-- 查看交互式程序 → 用 ssh_terminal_snapshot
-- 查看全屏 TUI 程序（htop/vim）→ 用 ssh_terminal_snapshot
-
-💡 读取策略：
-- strategy="latest_lines" + limit=50 → 获取最新 50 行
-- strategy="all_unread" → 读取所有未读数据
-- strategy="latest_bytes" + limit=4096 → 获取最新 4KB
-
-📊 容量：输出缓冲区可存储 10000 行历史记录`,
-		InputSchema: sshReadOutputSchema(),
-	}, s.handleSSHReadOutput)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_resize_pty",
-		Description: "调整终端窗口大小",
-		InputSchema: sshResizePtySchema(),
-	}, s.handleSSHResizePty)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_terminal_snapshot",
-		Description: `获取终端屏幕快照（仅用于查看交互式程序界面）。
-
-⚠️ 与 ssh_read_output 的区别：
-- ssh_terminal_snapshot：查看当前屏幕（30 行），适合查看交互式程序界面
-- ssh_read_output：读取大量文本（10000+ 行），适合查看日志、编译输出
-
-✅ 使用场景：
-- 查看交互式程序的当前状态（htop、top、vim、gdb、tmux）
-- 查看全屏 TUI 程序界面（包括进度条、表格、图形）
-- 需要看到完整屏幕内容（不只是文本输出）
-- 调试终端渲染问题
-
-⚡ 核心优势：
-- 使用 VT100 终端模拟器捕获完整屏幕状态
-- 支持 ANSI 颜色和光标位置信息
-- 不依赖输出缓冲区，直接获取屏幕内容
-- 完美兼容所有交互式程序和 TUI 应用
-
-❌ 不要使用场景：
-- 查看命令执行结果 → 用 ssh_read_output
-- 查看日志文件 → 用 ssh_read_output
-- 查看编译输出 → 用 ssh_read_output
-
-💡 使用流程：
-1. ssh_shell() - 启动交互式会话（自动 raw 模式）
-2. ssh_write_input(input="htop") - 启动交互式程序
-3. ssh_terminal_snapshot() - 查看完整界面
-4. ssh_write_input(special_char="ctrl+c") - 退出程序
-
-🎨 参数说明：
-- with_color=false - 纯文本快照（默认）
-- with_color=true - 包含 ANSI 颜色码
-- include_cursor_info=true - 显示光标位置和终端尺寸`,
-		InputSchema: sshTerminalSnapshotSchema(),
-	}, s.handleSSHTerminalSnapshot)
-
-	// Shell 状态查询工具
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_shell_status",
-		Description: "查询 shell 会话状态（是否活动、当前目录、是否有未读取输出等）",
-		InputSchema: sshShellStatusSchema(),
-	}, s.handleSSHShellStatus)
-
-	// 命令历史工具
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_history",
-		Description: "查看会话的命令执行历史（记录所有通过 ssh_exec 和 ssh_exec_batch 执行的命令）",
-		InputSchema: sshHistorySchema(),
-	}, s.handleSSHHistory)
-
-	// 主机管理工具
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_list_hosts",
-		Description: "列出所有预定义的主机配置",
-		InputSchema: sshListHostsSchema(),
-	}, s.handleSSHListHosts)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_save_host",
-		Description: "保存主机配置以便后续快速连接",
-		InputSchema: sshSaveHostSchema(),
-	}, s.handleSSHSaveHost)
-
-	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "ssh_remove_host",
-		Description: "删除已保存的主机配置",
-		InputSchema: sshRemoveHostSchema(),
-	}, s.handleSSHRemoveHost)
+		mcp.AddTool(s.mcpServer, &mcp.Tool{
+			Name:        "ssh_remove_host",
+			Description: "删除已保存的主机连接配置。",
+			InputSchema: sshRemoveHostSchema(),
+		}, s.handleSSHRemoveHost)
+	}
 }
 
 // Start starts the MCP server

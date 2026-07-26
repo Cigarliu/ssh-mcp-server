@@ -56,7 +56,7 @@ Shell starts and **returns immediately**, runs in background with automatic outp
 **Key Features:**
 - ⏱️ **Instant return** - Shell starts in ~2ms
 - 💾 **10000-line circular buffer** - Automatic overflow handling
-- ❤️ **3-layer keepalive** - TCP (30s) + SSH (30s) + App heartbeat (60s)
+- ❤️ **SSH protocol keepalive** - keeps interactive transports alive without injecting terminal bytes
 - 🎯 **3 read strategies** - latest_N_lines / all_unread / latest_N_bytes
 - ✅ **90+ second long-running verified** - 0 keepalive failures
 
@@ -218,6 +218,7 @@ The ultimate clean output - **zero pollution, zero character loss, zero duplicat
   - macOS/Linux: `/Users/yourname/ssh-mcp-server/bin/sshmcp`
 - `args`: Command-line arguments (optional)
 - `env`: Environment variables (optional)
+- `tools.profile` in `config.yaml`: `core` (default, 8 remote-operation tools), `files` (core plus two task-oriented SFTP tools), or `advanced` (all 20 granular tools). Existing `basic` configurations map to `files`.
 
 **⚠️ Path Notes:**
 - ✅ Windows: Use `/` or `\\` (e.g., `D:/code/...`)
@@ -302,7 +303,7 @@ Claude: [Connects → Starts gdb → Loads process → Provides backtrace]
 - ✅ Instant shell return (~2ms)
 - ✅ Background execution with output buffering
 - ✅ 10000-line circular buffer
-- ✅ 3-layer keepalive (TCP/SSH/App)
+- ✅ SSH protocol keepalive without terminal-byte injection
 - ✅ 3 read strategies (latest_N/all_unread/latest_bytes)
 - ✅ Enhanced shell status (buffer usage, keepalive health)
 
@@ -684,6 +685,7 @@ tmux attach             # ✅ 终端复用器
   - macOS/Linux: `/Users/yourname/ssh-mcp-server/bin/sshmcp`
 - `args`: 命令行参数（可选）
 - `env`: 环境变量（可选）
+- `config.yaml` 中的 `tools.profile`：`core`（默认，8 个传输无关工具）、`files`（core 加两个任务导向的 SFTP 工具）或 `advanced`（27 个迁移和诊断工具）。已有的 `basic` 配置会兼容映射到 `files`。
 
 **⚠️ 路径注意事项：**
 - ✅ Windows: 使用 `/` 或 `\\`（如 `D:/code/...`）

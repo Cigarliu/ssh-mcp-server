@@ -29,9 +29,10 @@ func NewVT10xEmulator(width, height int) (*VT10xAdapter, error) {
 		vt:    vt,
 	}
 
-	// 初始化终端尺寸（通过写入 ANSI 序列）
-	// 使用 Device Attributes 请求来设置尺寸
-	adapter.state.WriteString("", height, width)
+	// vt10x v1.3.1 labels WriteString's dimensions as rows/cols, but forwards
+	// them to its internal resize function as cols/rows. Pass width/height to
+	// preserve this package's public (width, height) contract.
+	adapter.state.WriteString("", width, height)
 
 	return adapter, nil
 }
@@ -112,10 +113,10 @@ func (a *VT10xAdapter) GetSize() (int, int) {
 
 // Resize 实现 TerminalEmulator 接口
 func (a *VT10xAdapter) Resize(width, height int) {
-	// 使用 State.WriteString 来更新尺寸
+	// See NewVT10xEmulator for the vt10x argument-order compatibility note.
 	a.state.Lock()
 	defer a.state.Unlock()
-	a.state.WriteString("", height, width)
+	a.state.WriteString("", width, height)
 }
 
 // Close 实现 TerminalEmulator 接口

@@ -2,6 +2,7 @@ package sshmcp
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -347,6 +348,10 @@ func min(a, b int) int {
 
 // createTestSession creates a test SSH session
 func createTestSession(t *testing.T) *Session {
+	if os.Getenv("RUN_SSH_INTEGRATION") != "1" {
+		t.Skip("set RUN_SSH_INTEGRATION=1 to run SSH integration tests")
+	}
+
 	host := getTestHost()
 	port := getTestPort()
 	username := getTestUser()

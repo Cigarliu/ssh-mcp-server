@@ -35,6 +35,8 @@ func setupTestServer(t *testing.T) (*Server, *sshmcp.SessionManager) {
 
 // createTestSession creates a real SSH session for testing
 func createTestSession(t *testing.T, sm *sshmcp.SessionManager) *sshmcp.Session {
+	requireSSHIntegration(t)
+
 	authConfig := &sshmcp.AuthConfig{
 		Type:     sshmcp.AuthTypePassword,
 		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
@@ -49,6 +51,54 @@ func createTestSession(t *testing.T, sm *sshmcp.SessionManager) *sshmcp.Session 
 		return nil
 	}
 	return session
+}
+
+func requireSSHIntegration(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RUN_SSH_INTEGRATION") != "1" {
+		t.Skip("set RUN_SSH_INTEGRATION=1 to run SSH integration tests")
+	}
+}
+
+func TestBoundedOutputLimit(t *testing.T) {
+	assert.Equal(t, defaultMaxOutputChars, boundedOutputLimit(0))
+	assert.Equal(t, 100, boundedOutputLimit(100))
+	assert.Equal(t, defaultMaxOutputChars, boundedOutputLimit(defaultMaxOutputChars+1))
+	assert.Equal(t, defaultMaxOutputChars, boundedOutputLimit(12.5))
+}
+
+func TestTerminalDimension(t *testing.T) {
+	value, err := terminalDimension("rows", 0, 40, maxTerminalRows)
+	require.NoError(t, err)
+	assert.Equal(t, uint16(40), value)
+
+	value, err = terminalDimension("cols", 240, 0, maxTerminalCols)
+	require.NoError(t, err)
+	assert.Equal(t, uint16(240), value)
+
+	for _, invalid := range []float64{-1, 0, 100.5, 101} {
+		_, err := terminalDimension("rows", invalid, 0, maxTerminalRows)
+		assert.Error(t, err)
+	}
+}
+
+func TestDirectoryEntryLimit(t *testing.T) {
+	assert.Equal(t, 100, directoryEntryLimit(0))
+	assert.Equal(t, 50, directoryEntryLimit(50))
+	assert.Equal(t, maxDirectoryEntries, directoryEntryLimit(maxDirectoryEntries+1))
+}
+
+func TestCompactSFTPToolsRejectInvalidOperations(t *testing.T) {
+	server, sessionManager := setupTestServer(t)
+	defer sessionManager.Close()
+
+	result, _, err := server.handleSFTPTransfer(context.Background(), nil, map[string]any{"operation": "move"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+
+	result, _, err = server.handleSFTPManage(context.Background(), nil, map[string]any{"operation": "rename"})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
 }
 
 // TestHandleSSHExec tests ssh_exec handler
@@ -78,6 +128,7 @@ func TestHandleSSHExec(t *testing.T) {
 
 // TestHandleSSHConnectWithSudoPassword tests ssh_connect with sudo_password parameter
 func TestHandleSSHConnectWithSudoPassword(t *testing.T) {
+	requireSSHIntegration(t)
 	if testing.Short() {
 		t.Skip("跳过需要SSH连接的测试（使用 -short 标志）")
 	}
@@ -123,7 +174,7 @@ func TestHandleSSHConnectWithSudoPassword(t *testing.T) {
 			"host":          host,
 			"username":      username,
 			"password":      password,
-			"sudo_password":  sudoPassword,
+			"sudo_password": sudoPassword,
 			"alias":         "test-with-sudo",
 		}
 
@@ -437,6 +488,18 @@ func TestHandleSSHReadOutput(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Nil(t, output)
 	assert.NotNil(t, result.Content)
+}
+
+func TestTruncateCommandOutput(t *testing.T) {
+	stdout, stderr, truncated := truncateCommandOutput("12345", "67890", 7)
+	assert.Equal(t, "12345", stdout)
+	assert.Equal(t, "67", stderr)
+	assert.True(t, truncated)
+
+	stdout, stderr, truncated = truncateCommandOutput("ok", "", 10)
+	assert.Equal(t, "ok", stdout)
+	assert.Empty(t, stderr)
+	assert.False(t, truncated)
 }
 
 // TestHandleSSHResizePty tests ssh_resize_pty handler

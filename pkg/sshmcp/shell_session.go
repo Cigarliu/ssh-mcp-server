@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/acarl005/stripansi"
+	"github.com/cigar/sshmcp/pkg/terminal"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -67,7 +68,7 @@ func (s *Session) CreateShellWithConfig(term string, rows, cols uint16, config *
 			ssh.VQUIT:         0, // 禁用退出字符
 			ssh.VERASE:        0, // 禁用擦除字符
 			ssh.VKILL:         0, // 禁用杀死字符
-			ssh.VEOF:           0, // 禁用 EOF 字符
+			ssh.VEOF:          0, // 禁用 EOF 字符
 		}
 	} else {
 		// Cooked mode: normal processing
@@ -148,24 +149,35 @@ func (s *Session) CreateShellWithConfig(term string, rows, cols uint16, config *
 		heartbeatDone:    heartbeatDone,
 		keepaliveDone:    keepaliveDone,
 	}
+	shellSession.Terminal = terminal.New(stdout, stdin, terminal.Config{
+		BufferSize: terminal.DefaultBufferSize,
+		Screen:     termCapturer,
+		OnData:     shellSession.appendLegacyOutput,
+	})
 
 	s.ShellSession = shellSession
 	s.State = SessionStateActive
 
-	// 启动后台输出读取 goroutine
-	go shellSession.startOutputReader()
-
 	// 启动 SSH Keepalive goroutine（层 2 保活）
 	go shellSession.startSSHKeepAlive()
 
-	// 启动应用层心跳 goroutine（层 3 保活）
-	go shellSession.startApplicationHeartbeat()
+	// SSH protocol keepalives are sufficient. Writing ANSI heartbeat bytes here
+	// would pollute the model-facing terminal transcript.
 
 	return shellSession, nil
 }
 
 // WriteInput writes input to the shell
 func (ss *SSHShellSession) WriteInput(input string) error {
+	if ss.Terminal != nil {
+		if err := ss.Terminal.Write([]byte(input)); err != nil {
+			return err
+		}
+		ss.mu.Lock()
+		ss.LastWriteTime = time.Now()
+		ss.mu.Unlock()
+		return nil
+	}
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
@@ -227,6 +239,17 @@ func extractCurrentDir(output string) string {
 
 // ReadOutput reads output from the shell with timeout
 func (ss *SSHShellSession) ReadOutput(timeout time.Duration) (string, string, error) {
+	if ss.Terminal != nil {
+		deadline := time.Now().Add(timeout)
+		for {
+			stdout, stderr, err := ss.ReadOutputNonBlocking(0)
+			if err != nil || stdout != "" || stderr != "" || timeout <= 0 || !time.Now().Before(deadline) {
+				return stdout, stderr, err
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
@@ -319,6 +342,9 @@ func (ss *SSHShellSession) Close() error {
 		// Already closed
 	default:
 		close(ss.done)
+	}
+	if ss.Terminal != nil {
+		ss.Terminal.Close()
 	}
 
 	select {
@@ -575,58 +601,28 @@ func (ss *SSHShellSession) GetStatus() *ShellStatus {
 	return status
 }
 
-// startOutputReader starts a background goroutine that reads output into the buffer
+// startOutputReader is retained for package-internal legacy callers. Terminal owns
+// the stdout reader, so starting another reader would race and corrupt ordering.
 func (ss *SSHShellSession) startOutputReader() {
-	buf := make([]byte, 4096)
-	var lineBuffer strings.Builder
+}
 
+// appendLegacyOutput keeps the deprecated line buffer available without making
+// it the source of truth. Raw bytes and their ordering are owned by Terminal.
+func (ss *SSHShellSession) appendLegacyOutput(data []byte) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	ss.legacyLineBuffer = append(ss.legacyLineBuffer, data...)
 	for {
-		select {
-		case <-ss.done:
-			return
-		default:
-			// Set read deadline to avoid blocking forever
-			if ss.Stdout != nil {
-				n, err := ss.Stdout.Read(buf)
-				if n > 0 {
-					// Process the received data
-					data := buf[:n]
-
-					// Feed to terminal capturer for snapshot support
-					if ss.TerminalCapturer != nil {
-						ss.TerminalCapturer.Emulator.Write(data)
-					}
-
-					// Split by lines and write to buffer
-					lines := strings.Split(string(data), "\n")
-					for i, line := range lines {
-						if i > 0 {
-							// Complete line, write to buffer
-							ss.OutputBuffer.Write(lineBuffer.String())
-							lineBuffer.Reset()
-						}
-						if i < len(lines)-1 || len(data) > 0 && data[len(data)-1] == '\n' {
-							ss.OutputBuffer.Write(line)
-						} else {
-							// Last incomplete line, keep in buffer
-							lineBuffer.WriteString(line)
-						}
-					}
-
-					ss.LastReadTime = time.Now()
-				}
-				if err != nil {
-					// Connection closed or error
-					if err != io.EOF {
-						ss.mu.Lock()
-						ss.IsActive = false
-						ss.mu.Unlock()
-					}
-					return
-				}
-			}
+		index := bytes.IndexByte(ss.legacyLineBuffer, '\n')
+		if index < 0 {
+			break
 		}
+		line := strings.TrimSuffix(string(ss.legacyLineBuffer[:index]), "\r")
+		ss.OutputBuffer.Write(line)
+		ss.legacyLineBuffer = ss.legacyLineBuffer[index+1:]
 	}
+	ss.LastReadTime = time.Now()
+	ss.hasUnreadData = len(ss.legacyLineBuffer) > 0 || ss.OutputBuffer.GetCount() > 0
 }
 
 // startSSHKeepAlive starts a goroutine that sends SSH protocol keepalive messages (层 2 保活)

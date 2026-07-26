@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -11,9 +12,9 @@ import (
 
 // Config represents the logger configuration
 type Config struct {
- Level  string // debug, info, warn, error
- Format string // json, console
- Output string // stdout, stderr, or file path
+	Level  string // debug, info, warn, error
+	Format string // json, console
+	Output string // stdout, stderr, or file path
 }
 
 // NewLogger creates a new logger
@@ -55,6 +56,21 @@ func NewLogger(config Config) (*zerolog.Logger, error) {
 	logger := zerolog.New(output).With().Timestamp().Logger()
 
 	return &logger, nil
+}
+
+// NewMCPLogger creates a logger safe for a stdio MCP server. stdout is reserved
+// for newline-delimited JSON-RPC messages, so logs must use another destination.
+func NewMCPLogger(config Config) (*zerolog.Logger, error) {
+	config.Output = mcpSafeOutput(config.Output)
+	return NewLogger(config)
+}
+
+func mcpSafeOutput(output string) string {
+	if strings.EqualFold(strings.TrimSpace(output), "stdout") || strings.TrimSpace(output) == "" {
+		return "stderr"
+	}
+
+	return output
 }
 
 // NewDefaultLogger creates a logger with default configuration
