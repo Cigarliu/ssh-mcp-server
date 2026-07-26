@@ -21,9 +21,9 @@ sftp:
   chunk_size: 4194304
   transfer_timeout: 5m
 
-# core: 8 transport-neutral tools; files: core plus 2 SFTP tools; advanced: all 27 migration and diagnostic tools
+# files is the default: 10 tools including compact SFTP transfer and management. core has 8 SSH/terminal tools; advanced has all 27 migration and diagnostic tools.
 tools:
-  profile: core
+  profile: files
 
 # Serial devices are opened on demand with connection_open(transport="serial").
 # On Linux, run the server as an account permitted to open the device (commonly

@@ -34,7 +34,7 @@ type Server struct {
 
 // NewServer creates a new MCP server
 func NewServer(sessionManager *sshmcp.SessionManager, hostManager *sshmcp.HostManager, logger *zerolog.Logger) (*Server, error) {
-	return NewServerWithProfile(sessionManager, hostManager, logger, string(ToolProfileCore))
+	return NewServerWithProfile(sessionManager, hostManager, logger, string(ToolProfileFiles))
 }
 
 // NewServerWithProfile creates an MCP server with the requested tool profile.
@@ -68,7 +68,9 @@ func NewServerWithProfile(sessionManager *sshmcp.SessionManager, hostManager *ss
 
 func parseToolProfile(profileName string) (ToolProfile, error) {
 	switch ToolProfile(strings.ToLower(strings.TrimSpace(profileName))) {
-	case "", ToolProfileCore:
+	case "":
+		return ToolProfileFiles, nil
+	case ToolProfileCore:
 		return ToolProfileCore, nil
 	case ToolProfileFiles, "basic":
 		return ToolProfileFiles, nil

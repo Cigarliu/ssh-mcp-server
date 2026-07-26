@@ -40,7 +40,7 @@ cp config.example.yaml .sshmcp.yaml
 
 ## 工具面
 
-默认使用 `core` profile，只向模型暴露 8 个工具。
+默认使用 `files` profile，向模型暴露 10 个工具。
 
 | Profile | 工具数 | 用途 |
 | --- | ---: | --- |
@@ -48,7 +48,7 @@ cp config.example.yaml .sshmcp.yaml
 | `files` | 10 | `core` 加聚合的 SFTP 上传、下载和目录操作 |
 | `advanced` | 27 | 兼容旧的细粒度 SSH/SFTP/诊断工具 |
 
-`core` 工具：
+默认 `files` 工具：
 
 | 工具 | 说明 |
 | --- | --- |
@@ -56,6 +56,8 @@ cp config.example.yaml .sshmcp.yaml
 | `connection_open` | 创建 SSH 或串口连接；SSH 在已保存主机和直连参数之间二选一 |
 | `connection_close` | 关闭连接及附属终端 |
 | `ssh_exec` | 执行非交互 SSH 命令 |
+| `sftp_transfer` | 上传或下载单个文件 |
+| `sftp_manage` | 列出目录、创建目录或删除路径 |
 | `terminal_open` | 在已打开连接上创建通用终端 |
 | `terminal_interact` | 原子写入并按 `until` 字面量或静默窗口等待输出 |
 | `terminal_view` | 获取 SSH TUI 屏幕投影，不用于普通命令输出 |
@@ -88,7 +90,7 @@ connection_open -> terminal_open -> terminal_interact -> terminal_close -> conne
 
 ```yaml
 tools:
-  profile: core
+  profile: files
 
 logging:
   level: info
@@ -140,6 +142,17 @@ go test -race ./pkg/terminal ./pkg/serialmcp ./pkg/mcp
 ```
 
 本机 SSH 与串口集成测试均为显式 opt-in，避免默认测试连接设备或使用凭据。相关环境变量定义在 `pkg/mcp/terminal_integration_test.go`。
+
+## 发布
+
+推送以 `v` 开头的版本 tag 会自动创建 GitHub Release，并附带 Linux（amd64、arm64）、macOS（amd64、arm64）和 Windows（amd64）二进制包：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+每个压缩包包含 `sshmcp`、示例配置、双语 README 和许可证。也可以在 GitHub Actions 的 `Release` 工作流中手动填写 tag 触发发布。
 
 ## License
 

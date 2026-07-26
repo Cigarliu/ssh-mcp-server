@@ -33,6 +33,7 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.sessionManager)
 	assert.NotNil(t, server.hostManager)
 	assert.NotNil(t, server.logger)
+	assert.Equal(t, ToolProfileFiles, server.profile)
 }
 
 // TestServer_RegisterTools tests that tools are registered
@@ -64,7 +65,7 @@ func TestParseToolProfile(t *testing.T) {
 		want  ToolProfile
 		err   bool
 	}{
-		{input: "", want: ToolProfileCore},
+		{input: "", want: ToolProfileFiles},
 		{input: "core", want: ToolProfileCore},
 		{input: "files", want: ToolProfileFiles},
 		{input: "basic", want: ToolProfileFiles},

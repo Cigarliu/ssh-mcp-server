@@ -172,15 +172,15 @@ func TestModelFacingSchemasUseOneConnectionVocabulary(t *testing.T) {
 func TestSSHCapabilitiesFollowToolProfile(t *testing.T) {
 	server, manager := setupTestServer(t)
 	t.Cleanup(manager.Close)
-	if strings.Contains(strings.Join(server.sshCapabilities(), ","), "files") {
-		t.Fatal("core profile must not advertise file capabilities")
+	if !strings.Contains(strings.Join(server.sshCapabilities(), ","), "files") {
+		t.Fatal("default files profile must advertise file capabilities")
 	}
 
-	filesServer, err := NewServerWithProfile(manager, server.hostManager, server.logger, "files")
+	coreServer, err := NewServerWithProfile(manager, server.hostManager, server.logger, "core")
 	if err != nil {
-		t.Fatalf("new files-profile server: %v", err)
+		t.Fatalf("new core-profile server: %v", err)
 	}
-	if !strings.Contains(strings.Join(filesServer.sshCapabilities(), ","), "files") {
-		t.Fatal("files profile must advertise file capabilities")
+	if strings.Contains(strings.Join(coreServer.sshCapabilities(), ","), "files") {
+		t.Fatal("core profile must not advertise file capabilities")
 	}
 }

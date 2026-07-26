@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^v[0-9A-Za-z._-]+$ ]]; then
+            echo "VERSION must be a tag such as v1.0.0" >&2
+            exit 1
+          fi
+          name="sshmcp_${VERSION#v}_${GOOS}_${GOARCH}"
+          binary="sshmcp"
+          if [ "$GOOS" = "windows" ]; then
+            binary="${binary}.exe"
+          fi
+          mkdir -p "dist/${name}"
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/${name}/${binary}" ./cmd/server
+          cp config.example.yaml "dist/${name}/"
+          cp README.md README.en.md LICENSE "dist/${name}/"
+          if [ "$GOOS" = "windows" ]; then
+            (cd dist && zip -rq "${name}.zip" "${name}")
+          else
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          fi
+          rm -rf "dist/${name}"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create or update release
+        run: |
+          set -euo pipefail
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/* --clobber
+          else
+            gh release create "$VERSION" dist/* --title "$VERSION" --generate-notes
+          fi

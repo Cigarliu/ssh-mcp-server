@@ -180,9 +180,9 @@ sftp:
   chunk_size: 4194304        # 4MB in bytes
   transfer_timeout: 5m
 
-# core exposes the eight primary remote-operation tools. Use files for compact SFTP tools or advanced for all tools.
+# files exposes the ten primary remote-operation tools, including compact SFTP tools. Use core for SSH and terminal-only access or advanced for all tools.
 tools:
-  profile: core
+  profile: files
 
 # Predefined hosts for quick connection
 # You can reference these hosts by name when connecting
@@ -233,7 +233,7 @@ func setDefaults() {
 	viper.SetDefault("sftp.transfer_timeout", "5m")
 
 	// Tools
-	viper.SetDefault("tools.profile", "core")
+	viper.SetDefault("tools.profile", "files")
 
 	// Logging
 	viper.SetDefault("logging.level", "info")

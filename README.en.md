@@ -40,7 +40,7 @@ The server searches `-config`, `.mcp.yaml`, `.sshmcp.yaml`, and `~/.sshmcp/confi
 
 ## Tool Surface
 
-The default `core` profile exposes eight tools to the model.
+The default `files` profile exposes ten tools to the model.
 
 | Profile | Tools | Purpose |
 | --- | ---: | --- |
@@ -48,7 +48,7 @@ The default `core` profile exposes eight tools to the model.
 | `files` | 10 | `core` plus task-oriented SFTP transfer and management |
 | `advanced` | 27 | Legacy granular SSH, SFTP, migration, and diagnostic tools |
 
-Core tools:
+Default `files` tools:
 
 | Tool | Purpose |
 | --- | --- |
@@ -56,6 +56,8 @@ Core tools:
 | `connection_open` | Open SSH or serial; SSH uses either a saved host or direct connection fields |
 | `connection_close` | Close a connection and its attached terminal |
 | `ssh_exec` | Run a non-interactive SSH command |
+| `sftp_transfer` | Upload or download one file |
+| `sftp_manage` | List directories, create directories, or delete paths |
 | `terminal_open` | Create a transport-neutral terminal on an open connection |
 | `terminal_interact` | Atomically write input and wait for a literal `until` value or quiet |
 | `terminal_view` | Read an SSH TUI screen projection, not ordinary command output |
@@ -88,7 +90,7 @@ Minimal configuration:
 
 ```yaml
 tools:
-  profile: core
+  profile: files
 
 logging:
   level: info
@@ -140,6 +142,17 @@ go test -race ./pkg/terminal ./pkg/serialmcp ./pkg/mcp
 ```
 
 Local SSH and serial integration tests are explicitly opt-in so the default suite never connects to a device or needs credentials. Their environment variables are defined in `pkg/mcp/terminal_integration_test.go`.
+
+## Releases
+
+Pushing a version tag beginning with `v` automatically creates a GitHub Release with Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64) binary archives:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Each archive contains `sshmcp`, the example configuration, both READMEs, and the license. The `Release` workflow can also be started manually from GitHub Actions by entering a tag.
 
 ## License
 
