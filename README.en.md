@@ -53,11 +53,11 @@ Core tools:
 | Tool | Purpose |
 | --- | --- |
 | `connection_list` | List active connections, saved SSH hosts, and locally visible serial ports |
-| `connection_open` | Open SSH or serial; use a saved SSH host through `hostname` |
+| `connection_open` | Open SSH or serial; SSH uses either a saved host or direct connection fields |
 | `connection_close` | Close a connection and its attached terminal |
 | `ssh_exec` | Run a non-interactive SSH command |
 | `terminal_open` | Create a transport-neutral terminal on an open connection |
-| `terminal_interact` | Atomically write input and wait for output, a prompt, a pattern, or quiet |
+| `terminal_interact` | Atomically write input and wait for a literal `until` value or quiet |
 | `terminal_view` | Read an SSH TUI screen projection, not ordinary command output |
 | `terminal_close` | Close a terminal; serial terminals also release the device |
 
@@ -75,12 +75,12 @@ connection_open -> terminal_open -> terminal_interact -> terminal_close -> conne
 
 `terminal_interact` returns a structured state rather than depending on arbitrary sleeps:
 
-- `matched`: the literal prompt or pattern was found.
+- `matched`: the literal `until` value was found.
 - `stable`: output arrived and then reached the requested quiet period.
 - `limit_reached`: output reached `max_bytes`; continue with `next_offset`.
 - `timeout` or `closed`: inspect `stop_reason` before deciding whether to continue.
 
-For a TUI, open an SSH terminal with `profile: "tui"` and call `terminal_view`. Serial terminals use `terminal_interact` for raw data and have no screen projection.
+Use the default `wait: "quiet"` for normal commands. Use `wait: "until"` with `until` only for a known complete prompt or delimiter; it is not a regular expression. Use `wait: "none"` only when a write does not need a response yet. For a TUI, open an SSH terminal with `profile: "tui"` and call `terminal_view`. Serial terminals use `profile: "shell"` and `terminal_interact` for raw data and have no screen projection.
 
 ## Configuration
 

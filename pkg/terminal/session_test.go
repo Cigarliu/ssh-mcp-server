@@ -60,7 +60,7 @@ func TestInteractCapturesImmediateResponseBeforeWrite(t *testing.T) {
 	defer cancel()
 	result, err := session.Interact(ctx, InteractRequest{
 		Input:    []byte("status\n"),
-		Wait:     Wait{Kind: WaitPrompt, Pattern: "ready> "},
+		Wait:     Wait{Kind: WaitUntil, Until: "ready> "},
 		MaxBytes: 64,
 	})
 	if err != nil {
@@ -90,7 +90,7 @@ func TestSessionPreservesChunkOrderingAndOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if result.Data != "bar\n" || result.BytesLost != 3 || result.NextOffset != 7 {
+	if result.Data != "bar\n" || result.BytesLost != 3 || result.NextOffset != 7 || result.State != "complete" || result.StopReason != "no_wait" {
 		t.Fatalf("unexpected bounded replay: %+v", result)
 	}
 }

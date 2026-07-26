@@ -192,16 +192,16 @@ func (s *Server) handleSSHListSessions(ctx context.Context, req *mcp.CallToolReq
 
 // handleSSHExec handles the ssh_exec tool
 func (s *Server) handleSSHExec(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
-	sessionID, _ := args["session_id"].(string)
+	connectionID, _ := args["connection_id"].(string)
 	command, _ := args["command"].(string)
 	timeoutVal, _ := args["timeout"].(float64)
 	workingDir, _ := args["working_dir"].(string)
 	maxOutputCharsVal, _ := args["max_output_chars"].(float64)
 
-	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
+	session, err := s.sessionManager.GetSessionByIDOrAlias(connectionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -454,7 +454,7 @@ func (s *Server) handleSFTPUpload(ctx context.Context, req *mcp.CallToolRequest,
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -496,7 +496,7 @@ func (s *Server) handleSFTPDownload(ctx context.Context, req *mcp.CallToolReques
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -539,6 +539,9 @@ func copyToolArgs(args map[string]any) map[string]any {
 func (s *Server) handleSFTPTransfer(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	operation, _ := args["operation"].(string)
 	normalized := copyToolArgs(args)
+	if connectionID, _ := normalized["connection_id"].(string); connectionID != "" {
+		normalized["session_id"] = connectionID
+	}
 	if _, found := normalized["create_dirs"]; !found {
 		normalized["create_dirs"] = true
 	}
@@ -560,6 +563,9 @@ func (s *Server) handleSFTPTransfer(ctx context.Context, req *mcp.CallToolReques
 func (s *Server) handleSFTPManage(ctx context.Context, req *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	operation, _ := args["operation"].(string)
 	normalized := copyToolArgs(args)
+	if connectionID, _ := normalized["connection_id"].(string); connectionID != "" {
+		normalized["session_id"] = connectionID
+	}
 	remotePath, _ := normalized["remote_path"].(string)
 
 	switch operation {
@@ -596,7 +602,7 @@ func (s *Server) handleSFTPListDir(ctx context.Context, req *mcp.CallToolRequest
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -645,7 +651,7 @@ func (s *Server) handleSFTPMkdir(ctx context.Context, req *mcp.CallToolRequest, 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -684,7 +690,7 @@ func (s *Server) handleSFTPDelete(ctx context.Context, req *mcp.CallToolRequest,
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -711,7 +717,7 @@ func (s *Server) handleSSHWriteInput(ctx context.Context, req *mcp.CallToolReque
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}
@@ -796,7 +802,7 @@ func (s *Server) handleSSHReadOutput(ctx context.Context, req *mcp.CallToolReque
 	session, err := s.sessionManager.GetSessionByIDOrAlias(sessionID)
 	if err != nil {
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Session not found: %v\nHint: Use ssh_list_sessions() to see all active sessions", err)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
 		}, nil, nil
 	}

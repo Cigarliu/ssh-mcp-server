@@ -24,6 +24,7 @@ const (
 // Server wraps the MCP server
 type Server struct {
 	mcpServer      *mcp.Server
+	profile        ToolProfile
 	sessionManager *sshmcp.SessionManager
 	hostManager    *sshmcp.HostManager
 	serialManager  *serialmcp.Manager
@@ -52,6 +53,7 @@ func NewServerWithProfile(sessionManager *sshmcp.SessionManager, hostManager *ss
 
 	s := &Server{
 		mcpServer:      mcpServer,
+		profile:        profile,
 		sessionManager: sessionManager,
 		hostManager:    hostManager,
 		serialManager:  serialmcp.NewManager(),
@@ -78,7 +80,7 @@ func parseToolProfile(profileName string) (ToolProfile, error) {
 }
 
 func toolInstructions(profile ToolProfile) string {
-	instructions := "Use connection_open to create an SSH or serial connection. Use ssh_exec only for non-interactive SSH commands. For any continuous terminal or REPL, call terminal_open then terminal_interact; every terminal result reports a completion state, bounded output, and stream offsets. Use terminal_view only for TUI screens."
+	instructions := "Call connection_list before selecting a saved SSH host or serial port. Keep the returned connection_id and use it for SSH commands and files. Use ssh_exec for one-shot SSH commands. For an interactive shell or device console, call terminal_open then terminal_interact: default to wait=quiet, use wait=until only for a known literal, continue with next_offset after limit_reached, and do not blindly retry timeout. Call terminal_view only when terminal_open returns profile=tui and screen=true."
 	switch profile {
 	case ToolProfileCore:
 		return instructions + " This server uses the core profile; file transfer and advanced session controls are unavailable."
@@ -92,12 +94,12 @@ func toolInstructions(profile ToolProfile) string {
 // registerTools registers all SSH MCP tools
 func (s *Server) registerTools(profile ToolProfile) {
 	// Core tools are deliberately transport-neutral after connection bootstrap.
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_open", Description: "Open an SSH or serial connection and return its capabilities. For saved SSH hosts, pass hostname from connection_list instead of credentials.", InputSchema: connectionOpenSchema(), OutputSchema: connectionOpenOutputSchema()}, s.handleConnectionOpen)
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_close", Description: "Close an SSH or serial connection and any terminal attached to it.", InputSchema: connectionCloseSchema(), OutputSchema: connectionCloseOutputSchema()}, s.handleConnectionClose)
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_list", Description: "List active connections and locally discoverable serial devices.", InputSchema: connectionListSchema(), OutputSchema: connectionListOutputSchema()}, s.handleConnectionList)
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_open", Description: "Create a transport-neutral terminal session on an open connection. Use profile shell or repl for text prompts and tui for full-screen programs.", InputSchema: terminalOpenSchema(), OutputSchema: terminalOpenOutputSchema()}, s.handleTerminalOpen)
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_interact", Description: "Atomically capture an output cursor, send terminal input, and wait for a prompt, pattern, quiet period, or stable screen. Decide next actions from state and stop_reason; never blindly retry a timeout.", InputSchema: terminalInteractSchema(), OutputSchema: terminalInteractOutputSchema()}, s.handleTerminalInteract)
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_view", Description: "Read the current projected screen for a TUI terminal. It is not for normal command output.", InputSchema: terminalViewSchema(), OutputSchema: terminalViewOutputSchema()}, s.handleTerminalView)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_open", Description: "Open an SSH or serial connection. For SSH choose exactly one target: a saved hostname from connection_list, or host plus username and authentication. Return a connection_id and only capabilities exposed by this profile.", InputSchema: connectionOpenSchema(), OutputSchema: connectionOpenOutputSchema()}, s.handleConnectionOpen)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_close", Description: "Close an SSH connection_id or alias, or a serial connection_id, and any attached terminal.", InputSchema: connectionCloseSchema(), OutputSchema: connectionCloseOutputSchema()}, s.handleConnectionClose)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_list", Description: "List active connections, saved SSH host names, and locally discoverable serial ports.", InputSchema: connectionListSchema(), OutputSchema: connectionListOutputSchema()}, s.handleConnectionList)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_open", Description: "Create a terminal on an open connection. SSH supports shell and tui profiles; serial supports shell only. Close a terminal before reopening the same connection with another profile.", InputSchema: terminalOpenSchema(), OutputSchema: terminalOpenOutputSchema()}, s.handleTerminalOpen)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_interact", Description: "Atomically send terminal input and read from the captured stream offset. Use wait=quiet for normal commands, wait=until with a known literal, or wait=none only when no response is needed yet. Use returned state, stop_reason, and next_offset to decide the next call.", InputSchema: terminalInteractSchema(), OutputSchema: terminalInteractOutputSchema()}, s.handleTerminalInteract)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_view", Description: "Read the current projected screen for a terminal opened with profile tui. It is not for normal command output.", InputSchema: terminalViewSchema(), OutputSchema: terminalViewOutputSchema()}, s.handleTerminalView)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_close", Description: "Close a terminal session. SSH connections remain available for ssh_exec; serial terminals also release their serial port.", InputSchema: terminalCloseSchema(), OutputSchema: terminalCloseOutputSchema()}, s.handleTerminalClose)
 
 	// Legacy transport-specific controls remain available only for migration and
@@ -124,7 +126,7 @@ func (s *Server) registerTools(profile ToolProfile) {
 	// 命令执行工具
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:         "ssh_exec",
-		Description:  "执行非交互式 SSH 命令或脚本。普通运维任务优先使用；仅 TUI/交互程序使用 terminal_open。",
+		Description:  "Run one non-interactive SSH command. Use the connection_id returned by connection_open; use terminal_open only for stateful or interactive programs.",
 		InputSchema:  sshExecSchema(),
 		OutputSchema: sshExecOutputSchema(),
 	}, s.handleSSHExec)

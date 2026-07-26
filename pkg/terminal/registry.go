@@ -11,6 +11,7 @@ type Entry struct {
 	ID           string
 	ConnectionID string
 	Transport    string
+	Profile      string
 	Session      *Session
 	Close        func() error
 	Resize       func(width, height int) error
@@ -25,11 +26,12 @@ func NewRegistry() *Registry {
 	return &Registry{entries: make(map[string]*Entry)}
 }
 
-func (r *Registry) Register(connectionID, transport string, session *Session, closeFn func() error, resizeFn func(int, int) error) *Entry {
+func (r *Registry) Register(connectionID, transport, profile string, session *Session, closeFn func() error, resizeFn func(int, int) error) *Entry {
 	entry := &Entry{
 		ID:           "t-" + uuid.NewString()[:8],
 		ConnectionID: connectionID,
 		Transport:    transport,
+		Profile:      profile,
 		Session:      session,
 		Close:        closeFn,
 		Resize:       resizeFn,

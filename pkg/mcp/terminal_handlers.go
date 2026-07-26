@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +18,9 @@ func (s *Server) handleConnectionOpen(_ context.Context, _ *mcp.CallToolRequest,
 	transportName, _ := args["transport"].(string)
 	switch transportName {
 	case "ssh":
+		if hasAnyArg(args, "device", "baud_rate", "data_bits", "parity", "stop_bits") {
+			return terminalError(fmt.Errorf("SSH connections cannot include serial fields"))
+		}
 		session, err := s.openSSHConnection(args)
 		if err != nil {
 			return terminalError(err)
@@ -24,11 +28,18 @@ func (s *Server) handleConnectionOpen(_ context.Context, _ *mcp.CallToolRequest,
 		return terminalJSON(map[string]any{
 			"connection_id": session.ID,
 			"transport":     "ssh",
-			"capabilities":  []string{"exec", "terminal", "tui", "files"},
+			"capabilities":  s.sshCapabilities(),
 		})
 	case "serial":
+		if hasAnyArg(args, "hostname", "host", "port", "username", "password", "private_key", "passphrase", "sudo_password", "alias") {
+			return terminalError(fmt.Errorf("serial connections cannot include SSH fields"))
+		}
+		device := stringArg(args, "device")
+		if device == "" {
+			return terminalError(fmt.Errorf("device is required for a serial connection"))
+		}
 		connection, err := s.serialManager.Open(serialmcp.Config{
-			Device:   stringArg(args, "device"),
+			Device:   device,
 			BaudRate: intArg(args, "baud_rate", 115200),
 			DataBits: intArg(args, "data_bits", 8),
 			Parity:   stringArgDefault(args, "parity", "none"),
@@ -48,14 +59,11 @@ func (s *Server) handleConnectionOpen(_ context.Context, _ *mcp.CallToolRequest,
 }
 
 func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error) {
-	host := stringArg(args, "host")
-	username := stringArg(args, "username")
+	var host, username, password, privateKey string
 	port := 22
-	password := stringArg(args, "password")
-	privateKey := stringArg(args, "private_key")
 	if hostname := stringArg(args, "hostname"); hostname != "" {
-		if host != "" {
-			return nil, fmt.Errorf("hostname cannot be combined with host")
+		if hasAnyArg(args, "host", "port", "username", "password", "private_key") {
+			return nil, fmt.Errorf("hostname cannot be combined with direct SSH address, port, username, or authentication fields")
 		}
 		saved, err := s.hostManager.GetHost(hostname)
 		if err != nil {
@@ -69,22 +77,26 @@ func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error)
 		}
 		password = saved.Password
 		privateKey = saved.PrivateKeyPath
-		if value := stringArg(args, "password"); value != "" {
-			password = value
-			privateKey = ""
+		if privateKey == "" && stringArg(args, "passphrase") != "" {
+			return nil, fmt.Errorf("passphrase requires a saved SSH host with private_key_path")
 		}
-		if value := stringArg(args, "private_key"); value != "" {
-			privateKey = value
-			password = ""
+	} else {
+		host = stringArg(args, "host")
+		username = stringArg(args, "username")
+		password = stringArg(args, "password")
+		privateKey = stringArg(args, "private_key")
+		if host == "" || username == "" {
+			return nil, fmt.Errorf("host and username are required for a direct SSH connection")
 		}
-		if value := stringArg(args, "username"); value != "" {
-			username = value
+		if _, present := args["port"]; present {
+			port = intArg(args, "port", 0)
 		}
-	} else if host == "" || username == "" {
-		return nil, fmt.Errorf("host and username are required for an SSH connection")
-	}
-	if _, present := args["port"]; present {
-		port = intArg(args, "port", 0)
+		if password != "" && privateKey != "" {
+			return nil, fmt.Errorf("provide password or private_key for direct SSH, not both")
+		}
+		if privateKey == "" && stringArg(args, "passphrase") != "" {
+			return nil, fmt.Errorf("passphrase requires private_key for direct SSH")
+		}
 	}
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("port must be between 1 and 65535")
@@ -102,6 +114,23 @@ func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error)
 		}
 	}
 	return s.sessionManager.CreateSession(host, port, username, auth, stringArg(args, "alias"))
+}
+
+func hasAnyArg(args map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, present := args[key]; present {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) sshCapabilities() []string {
+	capabilities := []string{"exec", "terminal", "tui"}
+	if s.profile == ToolProfileFiles || s.profile == ToolProfileAdvanced {
+		capabilities = append(capabilities, "files")
+	}
+	return capabilities
 }
 
 func (s *Server) handleConnectionClose(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
@@ -137,7 +166,7 @@ func (s *Server) handleConnectionList(_ context.Context, _ *mcp.CallToolRequest,
 			"host":          session.Host,
 			"username":      session.Username,
 			"alias":         session.Alias,
-			"capabilities":  []string{"exec", "terminal", "tui", "files"},
+			"capabilities":  s.sshCapabilities(),
 		})
 	}
 	for _, connection := range s.serialManager.List() {
@@ -149,12 +178,21 @@ func (s *Server) handleConnectionList(_ context.Context, _ *mcp.CallToolRequest,
 			"capabilities":  []string{"terminal"},
 		})
 	}
+	sort.Slice(connections, func(i, j int) bool {
+		leftTransport := connections[i]["transport"].(string)
+		rightTransport := connections[j]["transport"].(string)
+		if leftTransport != rightTransport {
+			return leftTransport < rightTransport
+		}
+		return connections[i]["connection_id"].(string) < connections[j]["connection_id"].(string)
+	})
 	savedHosts := make([]map[string]any, 0)
 	for name, host := range s.hostManager.ListHosts() {
 		savedHosts = append(savedHosts, map[string]any{
 			"name": name, "host": host.Host, "port": host.Port, "username": host.Username, "description": host.Description,
 		})
 	}
+	sort.Slice(savedHosts, func(i, j int) bool { return savedHosts[i]["name"].(string) < savedHosts[j]["name"].(string) })
 	ports, err := serialmcp.ListPorts()
 	payload := map[string]any{"connections": connections, "saved_ssh_hosts": savedHosts, "serial_ports": ports}
 	if err != nil {
@@ -166,18 +204,27 @@ func (s *Server) handleConnectionList(_ context.Context, _ *mcp.CallToolRequest,
 func (s *Server) handleTerminalOpen(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 	connectionID := stringArg(args, "connection_id")
 	profile := stringArgDefault(args, "profile", "shell")
-	if profile != "shell" && profile != "repl" && profile != "tui" {
-		return terminalError(fmt.Errorf("profile must be shell, repl, or tui"))
+	if profile != "shell" && profile != "tui" {
+		return terminalError(fmt.Errorf("profile must be shell or tui"))
 	}
 	if strings.HasPrefix(connectionID, "serial-") {
+		if profile == "tui" {
+			return terminalError(fmt.Errorf("serial terminals do not provide a TUI screen; use profile shell"))
+		}
+		if workingDir := stringArg(args, "working_dir"); workingDir != "" {
+			return terminalError(fmt.Errorf("working_dir is supported only for SSH terminals"))
+		}
 		if existing := s.terminals.FindByConnection(connectionID); existing != nil {
+			if existing.Profile != profile {
+				return terminalError(fmt.Errorf("terminal %q is already open with profile %q; close it before reopening with %q", existing.ID, existing.Profile, profile))
+			}
 			return terminalOpenResult(existing)
 		}
 		connection, err := s.serialManager.Get(connectionID)
 		if err != nil {
 			return terminalError(err)
 		}
-		entry := s.terminals.Register(connectionID, "serial", connection.Terminal(), func() error {
+		entry := s.terminals.Register(connectionID, "serial", "shell", connection.Terminal(), func() error {
 			return s.serialManager.Close(connectionID)
 		}, nil)
 		return terminalOpenResult(entry)
@@ -189,6 +236,12 @@ func (s *Server) handleTerminalOpen(_ context.Context, _ *mcp.CallToolRequest, a
 	}
 	connectionID = session.ID
 	if existing := s.terminals.FindByConnection(connectionID); existing != nil {
+		if existing.Profile != profile {
+			return terminalError(fmt.Errorf("terminal %q is already open with profile %q; close it before reopening with %q", existing.ID, existing.Profile, profile))
+		}
+		if stringArg(args, "working_dir") != "" {
+			return terminalError(fmt.Errorf("working_dir can only be set when opening a new terminal; use terminal_interact to change an existing shell directory"))
+		}
 		return terminalOpenResult(existing)
 	}
 	rows, err := terminalDimension("rows", numberArg(args, "rows"), 40, maxTerminalRows)
@@ -201,6 +254,12 @@ func (s *Server) handleTerminalOpen(_ context.Context, _ *mcp.CallToolRequest, a
 	}
 
 	shell := session.GetShellSession()
+	if shell != nil && shell.Terminal != nil && !shell.Terminal.Status().Closed {
+		isRaw := shell.Config != nil && shell.Config.Mode == sshmcp.TerminalModeRaw
+		if (profile == "tui") != isRaw {
+			return terminalError(fmt.Errorf("an existing SSH shell uses a different terminal mode; close the connection before opening profile %q", profile))
+		}
+	}
 	if shell == nil || shell.Terminal == nil || shell.Terminal.Status().Closed {
 		config := sshmcp.DefaultShellConfig()
 		config.ANSIMode = sshmcp.ANSIRaw
@@ -217,7 +276,7 @@ func (s *Server) handleTerminalOpen(_ context.Context, _ *mcp.CallToolRequest, a
 			return terminalError(err)
 		}
 	}
-	entry := s.terminals.Register(session.ID, "ssh", shell.Terminal, shell.Close, func(width, height int) error {
+	entry := s.terminals.Register(session.ID, "ssh", profile, shell.Terminal, shell.Close, func(width, height int) error {
 		return shell.Resize(uint16(height), uint16(width))
 	})
 	return terminalOpenResult(entry)
@@ -234,7 +293,7 @@ func (s *Server) handleTerminalInteract(ctx context.Context, _ *mcp.CallToolRequ
 	}
 	waitKind := terminal.WaitKind(stringArgDefault(args, "wait", string(terminal.WaitQuiet)))
 	switch waitKind {
-	case terminal.WaitNone, terminal.WaitPrompt, terminal.WaitPattern, terminal.WaitQuiet, terminal.WaitScreenStable:
+	case terminal.WaitNone, terminal.WaitUntil, terminal.WaitQuiet:
 	default:
 		return terminalError(fmt.Errorf("invalid wait value %q", waitKind))
 	}
@@ -253,9 +312,9 @@ func (s *Server) handleTerminalInteract(ctx context.Context, _ *mcp.CallToolRequ
 	request := terminal.InteractRequest{
 		Input: input,
 		Wait: terminal.Wait{
-			Kind:    waitKind,
-			Pattern: stringArg(args, "pattern"),
-			Quiet:   time.Duration(quietMS) * time.Millisecond,
+			Kind:  waitKind,
+			Until: stringArg(args, "until"),
+			Quiet: time.Duration(quietMS) * time.Millisecond,
 		},
 		MaxBytes: maxBytes,
 	}
@@ -276,6 +335,9 @@ func (s *Server) handleTerminalView(_ context.Context, _ *mcp.CallToolRequest, a
 	entry, err := s.terminals.Get(stringArg(args, "terminal_id"))
 	if err != nil {
 		return terminalError(err)
+	}
+	if entry.Profile != "tui" {
+		return terminalError(fmt.Errorf("terminal %q uses profile %q; terminal_view requires profile tui", entry.ID, entry.Profile))
 	}
 	screen := entry.Session.Screen()
 	if screen == nil {
@@ -309,7 +371,8 @@ func terminalOpenResult(entry *terminal.Entry) (*mcp.CallToolResult, any, error)
 		"terminal_id":   entry.ID,
 		"connection_id": entry.ConnectionID,
 		"transport":     entry.Transport,
-		"screen":        entry.Session.Screen() != nil,
+		"profile":       entry.Profile,
+		"screen":        entry.Profile == "tui" && entry.Session.Screen() != nil,
 		"start_offset":  status.StartOffset,
 		"end_offset":    status.EndOffset,
 	})

@@ -114,8 +114,8 @@ func TestHandleSSHExec(t *testing.T) {
 
 	// Test executing a command
 	args := map[string]any{
-		"session_id": session.ID,
-		"command":    "echo 'test output'",
+		"connection_id": session.ID,
+		"command":       "echo 'test output'",
 	}
 
 	result, output, err := server.handleSSHExec(context.Background(), nil, args)
@@ -196,9 +196,9 @@ func TestHandleSSHConnectWithSudoPassword(t *testing.T) {
 		t.Run("ExecuteSudoCommand", func(t *testing.T) {
 			// 执行 sudo 命令
 			execArgs := map[string]any{
-				"session_id": session.ID,
-				"command":    "sudo whoami",
-				"timeout":    5,
+				"connection_id": session.ID,
+				"command":       "sudo whoami",
+				"timeout":       5,
 			}
 
 			execResult, execOutput, execErr := server.handleSSHExec(context.Background(), nil, execArgs)

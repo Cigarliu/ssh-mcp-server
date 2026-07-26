@@ -21,17 +21,15 @@ const (
 type WaitKind string
 
 const (
-	WaitNone         WaitKind = "none"
-	WaitPrompt       WaitKind = "prompt"
-	WaitPattern      WaitKind = "pattern"
-	WaitQuiet        WaitKind = "quiet"
-	WaitScreenStable WaitKind = "screen_stable"
+	WaitNone  WaitKind = "none"
+	WaitUntil WaitKind = "until"
+	WaitQuiet WaitKind = "quiet"
 )
 
 type Wait struct {
-	Kind    WaitKind
-	Pattern string
-	Quiet   time.Duration
+	Kind  WaitKind
+	Until string
+	Quiet time.Duration
 }
 
 // Screen is optional. It is a projection of the raw byte stream, never the
@@ -211,13 +209,10 @@ func (s *Session) collect(ctx context.Context, from uint64, wait Wait, maxBytes 
 	if wait.Kind == "" {
 		wait.Kind = WaitNone
 	}
-	if (wait.Kind == WaitPrompt || wait.Kind == WaitPattern) && wait.Pattern == "" {
-		return Result{}, fmt.Errorf("wait pattern is required")
+	if wait.Kind == WaitUntil && wait.Until == "" {
+		return Result{}, fmt.Errorf("until is required when wait is until")
 	}
-	if wait.Kind == WaitScreenStable && s.screen == nil {
-		return Result{}, fmt.Errorf("screen_stable requires a terminal screen projection")
-	}
-	if wait.Kind == WaitQuiet || wait.Kind == WaitScreenStable {
+	if wait.Kind == WaitQuiet {
 		if wait.Quiet <= 0 {
 			wait.Quiet = 150 * time.Millisecond
 		}
@@ -239,20 +234,20 @@ func (s *Session) collect(ctx context.Context, from uint64, wait Wait, maxBytes 
 		result := makeResult(slice, started)
 		if wait.Kind == WaitNone {
 			result.State = "complete"
-			result.StopReason = "data_available"
+			result.StopReason = "no_wait"
 			return result, nil
 		}
-		if wait.Kind == WaitPrompt || wait.Kind == WaitPattern {
-			if bytes.Contains(slice.data, []byte(wait.Pattern)) {
+		if wait.Kind == WaitUntil {
+			if bytes.Contains(slice.data, []byte(wait.Until)) {
 				result.State = "matched"
-				result.StopReason = "pattern_matched"
+				result.StopReason = "until_matched"
 				result.Matched = true
 				return result, nil
 			}
 		}
-		if (wait.Kind == WaitQuiet || wait.Kind == WaitScreenStable) && sawData && time.Since(lastChange) >= wait.Quiet {
+		if wait.Kind == WaitQuiet && sawData && time.Since(lastChange) >= wait.Quiet {
 			result.State = "stable"
-			result.StopReason = map[WaitKind]string{WaitQuiet: "quiet", WaitScreenStable: "screen_stable"}[wait.Kind]
+			result.StopReason = "quiet"
 			return result, nil
 		}
 		if slice.truncated {
@@ -268,7 +263,7 @@ func (s *Session) collect(ctx context.Context, from uint64, wait Wait, maxBytes 
 
 		waitFor := s.ring.changed()
 		var quiet <-chan time.Time
-		if (wait.Kind == WaitQuiet || wait.Kind == WaitScreenStable) && sawData {
+		if wait.Kind == WaitQuiet && sawData {
 			quiet = time.After(time.Until(lastChange.Add(wait.Quiet)))
 		}
 		select {

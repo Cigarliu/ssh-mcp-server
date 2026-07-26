@@ -53,11 +53,11 @@ cp config.example.yaml .sshmcp.yaml
 | 工具 | 说明 |
 | --- | --- |
 | `connection_list` | 列出活跃连接、已保存 SSH 主机和本机可见串口 |
-| `connection_open` | 创建 SSH 或串口连接；SSH 可传 `hostname` 使用已保存主机 |
+| `connection_open` | 创建 SSH 或串口连接；SSH 在已保存主机和直连参数之间二选一 |
 | `connection_close` | 关闭连接及附属终端 |
 | `ssh_exec` | 执行非交互 SSH 命令 |
 | `terminal_open` | 在已打开连接上创建通用终端 |
-| `terminal_interact` | 原子写入并等待输出、提示符、模式或静默窗口 |
+| `terminal_interact` | 原子写入并按 `until` 字面量或静默窗口等待输出 |
 | `terminal_view` | 获取 SSH TUI 屏幕投影，不用于普通命令输出 |
 | `terminal_close` | 关闭终端；串口终端同时释放设备 |
 
@@ -75,12 +75,12 @@ connection_open -> terminal_open -> terminal_interact -> terminal_close -> conne
 
 `terminal_interact` 返回结构化状态，而不是依赖任意 sleep：
 
-- `matched`: 找到指定提示符或文本。
+- `matched`: 找到指定的 `until` 字面量文本。
 - `stable`: 收到输出后达到静默窗口。
 - `limit_reached`: 输出达到 `max_bytes`，使用 `next_offset` 继续读取。
 - `timeout` 或 `closed`: 根据 `stop_reason` 决定下一步，不要盲目重试。
 
-对于 TUI，创建 `profile: "tui"` 的 SSH 终端，并用 `terminal_view` 读取屏幕。对于串口，使用 `terminal_interact` 读取原始数据；串口没有屏幕投影。
+通常使用默认的 `wait: "quiet"`。只有已知完整的提示符或分隔文本时才使用 `wait: "until"` 和 `until`；它不是正则表达式。`wait: "none"` 仅用于暂不需要响应的写入。对于 TUI，创建 `profile: "tui"` 的 SSH 终端，并用 `terminal_view` 读取屏幕。对于串口，使用 `profile: "shell"` 和 `terminal_interact` 读取原始数据；串口没有屏幕投影。
 
 ## 配置
 
