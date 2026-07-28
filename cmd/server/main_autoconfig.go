@@ -27,8 +27,8 @@ func loadConfigWithPath() (*config.Config, string, error) {
 		if arg == "-config" && i+1 < len(args) {
 			configPath := args[i+1]
 			fmt.Fprintf(os.Stderr, "Loading config from: %s\n", configPath)
-			cfg, err := config.LoadConfig(configPath)
-			return cfg, configPath, err
+			cfg, usedPath, err := config.LoadConfigWithPath(configPath)
+			return cfg, usedPath, err
 		}
 	}
 
@@ -36,16 +36,16 @@ func loadConfigWithPath() (*config.Config, string, error) {
 	if _, err := os.Stat(".mcp.yaml"); err == nil {
 		configPath := ".mcp.yaml"
 		fmt.Fprintf(os.Stderr, "Loading config from: %s (current directory)\n", configPath)
-		cfg, err := config.LoadConfig(configPath)
-		return cfg, configPath, err
+		cfg, usedPath, err := config.LoadConfigWithPath(configPath)
+		return cfg, usedPath, err
 	}
 
 	// Check for .sshmcp.yaml in current directory
 	if _, err := os.Stat(".sshmcp.yaml"); err == nil {
 		configPath := ".sshmcp.yaml"
 		fmt.Fprintf(os.Stderr, "Loading config from: %s (current directory)\n", configPath)
-		cfg, err := config.LoadConfig(configPath)
-		return cfg, configPath, err
+		cfg, usedPath, err := config.LoadConfigWithPath(configPath)
+		return cfg, usedPath, err
 	}
 
 	// Check for ~/.sshmcp.yaml
@@ -54,21 +54,19 @@ func loadConfigWithPath() (*config.Config, string, error) {
 		homeConfig := filepath.Join(homeDir, ".sshmcp.yaml")
 		if _, err := os.Stat(homeConfig); err == nil {
 			fmt.Fprintf(os.Stderr, "Loading config from: %s (home directory)\n", homeConfig)
-			cfg, err := config.LoadConfig(homeConfig)
-			return cfg, homeConfig, err
+			cfg, usedPath, err := config.LoadConfigWithPath(homeConfig)
+			return cfg, usedPath, err
 		}
 	}
 
 	// No config found, let LoadConfig auto-generate default config
 	fmt.Fprintln(os.Stderr, "No configuration file found in standard locations")
-	cfg, err := config.LoadConfig("")
+	cfg, usedPath, err := config.LoadConfigWithPath("")
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Return the auto-generated config path
-	configPath := filepath.Join(homeDir, ".sshmcp", "config.yaml")
-	return cfg, configPath, nil
+	return cfg, usedPath, nil
 }
 
 // getProjectRoot returns the current working directory

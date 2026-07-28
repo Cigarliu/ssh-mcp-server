@@ -11,6 +11,56 @@ import (
 	"github.com/spf13/viper"
 )
 
+const defaultConfig = `# SSH MCP Server Configuration
+# Generated automatically on first run
+
+server:
+  name: "ssh-mcp-server"
+  version: "1.0.0"
+
+ssh:
+  default_port: 22
+  timeout: 30s
+  keepalive_interval: 30s
+
+session:
+  max_sessions: 100
+  max_sessions_per_host: 10
+  idle_timeout: 10m
+  session_timeout: 30m
+  cleanup_interval: 1m
+
+sftp:
+  max_file_size: 1073741824  # 1GB in bytes
+  chunk_size: 4194304        # 4MB in bytes
+  transfer_timeout: 5m
+
+# files exposes the ten primary remote-operation tools, including compact SFTP tools. Use core for SSH and terminal-only access or advanced for all tools.
+tools:
+  profile: files
+
+# Serial devices are opened on demand with connection_open(transport="serial").
+# On Linux, run the server as an account permitted to open the device (commonly
+# the dialout group), or launch the service with the necessary device access.
+
+# Predefined hosts for quick connection
+# You can reference these hosts by name with connection_open(hostname="prod").
+# connection_list returns the saved host names without exposing credentials.
+hosts:
+  # Example:
+  # prod:
+  #   host: "192.168.1.100"
+  #   port: 22
+  #   username: "root"
+  #   password: "your-password"
+  #   description: "Production server"
+
+logging:
+  level: info  # debug, info, warn, error
+  format: console  # json, console
+  output: stderr  # stdout is reserved for MCP protocol messages
+`
+
 // Config represents the application configuration
 type Config struct {
 	Server  ServerConfig  `mapstructure:"server"`
@@ -69,139 +119,98 @@ type HostConfig struct {
 // HostsConfig represents the predefined hosts configuration
 type HostsConfig map[string]HostConfig
 
-// LoadConfig loads the configuration from file and environment variables
+// LoadConfig loads the configuration from file and environment variables.
 func LoadConfig(configPath string) (*Config, error) {
-	// 设置默认值
-	setDefaults()
-
-	// 读取配置文件
-	if configPath != "" {
-		viper.SetConfigFile(configPath)
-	} else {
-		// 查找配置文件
-		viper.SetConfigName("config")
-		viper.SetConfigType("yaml")
-		viper.AddConfigPath(".")
-		// Linux/Unix paths - try expanded paths
-		viper.AddConfigPath("/etc/sshmcp/")
-		// Try to get user home directory for cross-platform support
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			// Add ~/.sshmcp/ (Windows & Unix)
-			viper.AddConfigPath(filepath.Join(homeDir, ".sshmcp"))
-			// Also try $HOME/.sshmcp/ as fallback
-			homeEnv := os.Getenv("HOME")
-			if homeEnv != "" {
-				viper.AddConfigPath(filepath.Join(homeEnv, ".sshmcp"))
-			}
-		}
-	}
-
-	// 环境变量
-	viper.SetEnvPrefix("SSHMCP")
-	viper.AutomaticEnv()
-
-	// 读取配置
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// 配置文件未找到，生成默认配置
-			fmt.Fprintln(os.Stderr, "No configuration file found, generating default config...")
-
-			defaultConfigPath, err := generateDefaultConfig()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to generate default config: %v\n", err)
-				fmt.Fprintln(os.Stderr, "Using built-in defaults")
-			} else {
-				fmt.Fprintf(os.Stderr, "Generated default configuration at: %s\n", defaultConfigPath)
-				fmt.Fprintln(os.Stderr, "You can edit this file to customize the settings")
-
-				// 重新加载生成的配置
-				viper.SetConfigFile(defaultConfigPath)
-				if readErr := viper.ReadInConfig(); readErr != nil {
-					return nil, fmt.Errorf("read generated config: %w", readErr)
-				}
-			}
-		} else {
-			return nil, fmt.Errorf("read config: %w", err)
-		}
-	}
-
-	// 解析配置
-	var config Config
-	if err := viper.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("unmarshal config: %w", err)
-	}
-
-	return &config, nil
+	cfg, _, err := LoadConfigWithPath(configPath)
+	return cfg, err
 }
 
-// generateDefaultConfig creates a default configuration file in the user's home directory
-func generateDefaultConfig() (string, error) {
-	homeDir, err := os.UserHomeDir()
+// LoadConfigWithPath loads configuration and returns the file path that was used.
+// If configPath is empty and no config file is found, it creates
+// ~/.sshmcp/config.yaml. If configPath points to a missing file, it creates that
+// file instead. Existing files are never overwritten.
+func LoadConfigWithPath(configPath string) (*Config, string, error) {
+	v := viper.New()
+	setDefaults(v)
+
+	if configPath != "" {
+		v.SetConfigFile(configPath)
+	} else {
+		v.SetConfigName("config")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		v.AddConfigPath("/etc/sshmcp/")
+
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			v.AddConfigPath(filepath.Join(homeDir, ".sshmcp"))
+			if homeEnv := os.Getenv("HOME"); homeEnv != "" {
+				v.AddConfigPath(filepath.Join(homeEnv, ".sshmcp"))
+			}
+		}
+	}
+
+	v.SetEnvPrefix("SSHMCP")
+	v.AutomaticEnv()
+
+	if err := v.ReadInConfig(); err != nil {
+		if !isConfigNotFound(err) {
+			return nil, "", fmt.Errorf("read config: %w", err)
+		}
+
+		fmt.Fprintln(os.Stderr, "No configuration file found, generating default config...")
+		defaultConfigPath, err := generateDefaultConfig(configPath)
+		if err != nil {
+			return nil, "", fmt.Errorf("generate default config: %w", err)
+		}
+
+		fmt.Fprintf(os.Stderr, "Generated default configuration at: %s\n", defaultConfigPath)
+		fmt.Fprintln(os.Stderr, "You can edit this file to customize the settings")
+
+		v.SetConfigFile(defaultConfigPath)
+		if readErr := v.ReadInConfig(); readErr != nil {
+			return nil, "", fmt.Errorf("read generated config: %w", readErr)
+		}
+	}
+
+	var config Config
+	if err := v.Unmarshal(&config); err != nil {
+		return nil, "", fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	return &config, v.ConfigFileUsed(), nil
+}
+
+// DefaultConfigPath returns the default auto-generated configuration path.
+func DefaultConfigPath() (string, error) {
+	return defaultConfigPath()
+}
+
+func generateDefaultConfig(configPath string) (string, error) {
+	configFile := configPath
+	if configFile == "" {
+		defaultPath, err := defaultConfigPath()
+		if err != nil {
+			return "", err
+		}
+		configFile = defaultPath
+	}
+
+	configFile, err := filepath.Abs(configFile)
 	if err != nil {
-		return "", fmt.Errorf("get home directory: %w", err)
+		return "", fmt.Errorf("resolve config path: %w", err)
 	}
 
-	configDir := filepath.Join(homeDir, ".sshmcp")
-	configFile := filepath.Join(configDir, "config.yaml")
-
-	// Check if config already exists - never overwrite existing config
 	if _, err := os.Stat(configFile); err == nil {
-		return configFile, nil // Config exists, return path without overwriting
+		return configFile, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat config file: %w", err)
 	}
 
-	// Create config directory
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(configFile), 0755); err != nil {
 		return "", fmt.Errorf("create config directory: %w", err)
 	}
 
-	// 默认配置内容
-	defaultConfig := `# SSH MCP Server Configuration
-# Generated automatically on first run
-
-server:
-  name: "ssh-mcp-server"
-  version: "1.0.0"
-
-ssh:
-  default_port: 22
-  timeout: 30s
-  keepalive_interval: 30s
-
-session:
-  max_sessions: 100
-  max_sessions_per_host: 10
-  idle_timeout: 10m
-  session_timeout: 30m
-  cleanup_interval: 1m
-
-sftp:
-  max_file_size: 1073741824  # 1GB in bytes
-  chunk_size: 4194304        # 4MB in bytes
-  transfer_timeout: 5m
-
-# files exposes the ten primary remote-operation tools, including compact SFTP tools. Use core for SSH and terminal-only access or advanced for all tools.
-tools:
-  profile: files
-
-# Predefined hosts for quick connection
-# You can reference these hosts by name when connecting
-hosts:
-  # Example:
-  # prod:
-  #   host: "192.168.1.100"
-  #   port: 22
-  #   username: "root"
-  #   password: "your-password"
-  #   description: "Production server"
-
-logging:
-  level: info  # debug, info, warn, error
-  format: console  # json, console
-  output: stderr
-`
-
-	// 写入配置文件
 	if err := os.WriteFile(configFile, []byte(defaultConfig), 0644); err != nil {
 		return "", fmt.Errorf("write config file: %w", err)
 	}
@@ -209,39 +218,43 @@ logging:
 	return configFile, nil
 }
 
-// setDefaults sets the default configuration values
-func setDefaults() {
-	// Server
-	viper.SetDefault("server.name", "ssh-mcp-server")
-	viper.SetDefault("server.version", "1.0.0")
-
-	// SSH
-	viper.SetDefault("ssh.default_port", 22)
-	viper.SetDefault("ssh.timeout", "30s")
-	viper.SetDefault("ssh.keepalive_interval", "30s")
-
-	// Session
-	viper.SetDefault("session.max_sessions", 100)
-	viper.SetDefault("session.max_sessions_per_host", 10)
-	viper.SetDefault("session.idle_timeout", "10m")
-	viper.SetDefault("session.session_timeout", "30m")
-	viper.SetDefault("session.cleanup_interval", "1m")
-
-	// SFTP
-	viper.SetDefault("sftp.max_file_size", int64(1073741824))
-	viper.SetDefault("sftp.chunk_size", int64(4194304))
-	viper.SetDefault("sftp.transfer_timeout", "5m")
-
-	// Tools
-	viper.SetDefault("tools.profile", "files")
-
-	// Logging
-	viper.SetDefault("logging.level", "info")
-	viper.SetDefault("logging.format", "console")
-	viper.SetDefault("logging.output", "stderr")
+func defaultConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home directory: %w", err)
+	}
+	return filepath.Join(homeDir, ".sshmcp", "config.yaml"), nil
 }
 
-// GetLogger creates a logger from the logging configuration
+func isConfigNotFound(err error) bool {
+	if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		return true
+	}
+	return os.IsNotExist(err)
+}
+
+// setDefaults sets the default configuration values.
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("server.name", "ssh-mcp-server")
+	v.SetDefault("server.version", "1.0.0")
+	v.SetDefault("ssh.default_port", 22)
+	v.SetDefault("ssh.timeout", "30s")
+	v.SetDefault("ssh.keepalive_interval", "30s")
+	v.SetDefault("session.max_sessions", 100)
+	v.SetDefault("session.max_sessions_per_host", 10)
+	v.SetDefault("session.idle_timeout", "10m")
+	v.SetDefault("session.session_timeout", "30m")
+	v.SetDefault("session.cleanup_interval", "1m")
+	v.SetDefault("sftp.max_file_size", int64(1073741824))
+	v.SetDefault("sftp.chunk_size", int64(4194304))
+	v.SetDefault("sftp.transfer_timeout", "5m")
+	v.SetDefault("tools.profile", "files")
+	v.SetDefault("logging.level", "info")
+	v.SetDefault("logging.format", "console")
+	v.SetDefault("logging.output", "stderr")
+}
+
+// GetLogger creates a logger from the logging configuration.
 func (c *Config) GetLogger() (*zerolog.Logger, error) {
 	return logger.NewLogger(c.Logging)
 }
