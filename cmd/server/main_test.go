@@ -113,18 +113,9 @@ logging:
 		errCh <- scanner.Err()
 	}()
 
-	line := receiveServerLine(t, lineCh, errCh, &stderr)
-
-	var response struct {
-		JSONRPC string          `json:"jsonrpc"`
-		ID      int             `json:"id"`
-		Result  json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal([]byte(line), &response); err != nil {
-		t.Fatalf("stdout contains non-JSON-RPC output %q: %v", line, err)
-	}
-	if response.JSONRPC != "2.0" || response.ID != 1 || len(response.Result) == 0 {
-		t.Fatalf("unexpected initialize response: %s", line)
+	initializeResult := receiveResponse(t, lineCh, errCh, &stderr, 1)
+	if len(initializeResult) == 0 {
+		t.Fatal("initialize response has no result")
 	}
 
 	if _, err := fmt.Fprintln(stdin, `{"jsonrpc":"2.0","method":"notifications/initialized"}`); err != nil {
@@ -135,19 +126,17 @@ logging:
 	}
 
 	var toolsResponse struct {
-		Result struct {
-			Tools []struct {
-				Name         string          `json:"name"`
-				OutputSchema json.RawMessage `json:"outputSchema"`
-			} `json:"tools"`
-		} `json:"result"`
+		Tools []struct {
+			Name         string          `json:"name"`
+			OutputSchema json.RawMessage `json:"outputSchema"`
+		} `json:"tools"`
 	}
-	if err := json.Unmarshal([]byte(receiveServerLine(t, lineCh, errCh, &stderr)), &toolsResponse); err != nil {
+	if err := json.Unmarshal(receiveResponse(t, lineCh, errCh, &stderr, 2), &toolsResponse); err != nil {
 		t.Fatalf("decode tools/list response: %v", err)
 	}
 
-	tools := make(map[string]json.RawMessage, len(toolsResponse.Result.Tools))
-	for _, tool := range toolsResponse.Result.Tools {
+	tools := make(map[string]json.RawMessage, len(toolsResponse.Tools))
+	for _, tool := range toolsResponse.Tools {
 		tools[tool.Name] = tool.OutputSchema
 	}
 	if len(tools) != len(expectedTools) {
@@ -178,22 +167,20 @@ logging:
 		t.Fatalf("send connection_list request: %v", err)
 	}
 	var callResponse struct {
-		Result struct {
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-			IsError bool `json:"isError"`
-		} `json:"result"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
 	}
-	if err := json.Unmarshal([]byte(receiveServerLine(t, lineCh, errCh, &stderr)), &callResponse); err != nil {
+	if err := json.Unmarshal(receiveResponse(t, lineCh, errCh, &stderr, 3), &callResponse); err != nil {
 		t.Fatalf("decode connection_list response: %v", err)
 	}
-	if callResponse.Result.IsError || len(callResponse.Result.Content) != 1 || callResponse.Result.Content[0].Type != "text" {
-		t.Fatalf("unexpected connection_list result: %+v", callResponse.Result)
+	if callResponse.IsError || len(callResponse.Content) != 1 || callResponse.Content[0].Type != "text" {
+		t.Fatalf("unexpected connection_list result: %+v", callResponse)
 	}
 	var connections map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(callResponse.Result.Content[0].Text), &connections); err != nil {
+	if err := json.Unmarshal([]byte(callResponse.Content[0].Text), &connections); err != nil {
 		t.Fatalf("connection_list text is not JSON: %v", err)
 	}
 	if _, found := connections["connections"]; !found {
@@ -207,15 +194,38 @@ logging:
 	}
 }
 
-func receiveServerLine(t *testing.T, lineCh <-chan string, errCh <-chan error, stderr *bytes.Buffer) string {
+func receiveResponse(t *testing.T, lineCh <-chan string, errCh <-chan error, stderr *bytes.Buffer, expectedID int) json.RawMessage {
 	t.Helper()
-	select {
-	case line := <-lineCh:
-		return line
-	case err := <-errCh:
-		t.Fatalf("server closed stdout before responding: %v\nstderr:\n%s", err, stderr.String())
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for server response")
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	for {
+		select {
+		case line := <-lineCh:
+			var response struct {
+				JSONRPC string          `json:"jsonrpc"`
+				ID      json.RawMessage `json:"id"`
+				Result  json.RawMessage `json:"result"`
+				Error   json.RawMessage `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(line), &response); err != nil {
+				t.Fatalf("stdout contains non-JSON-RPC output %q: %v", line, err)
+			}
+			if response.JSONRPC != "2.0" || len(response.ID) == 0 {
+				continue
+			}
+			var id int
+			if err := json.Unmarshal(response.ID, &id); err != nil || id != expectedID {
+				continue
+			}
+			if len(response.Error) != 0 && string(response.Error) != "null" {
+				t.Fatalf("request %d failed: %s", expectedID, response.Error)
+			}
+			return response.Result
+		case err := <-errCh:
+			t.Fatalf("server closed stdout before response %d: %v\nstderr:\n%s", expectedID, err, stderr.String())
+		case <-timer.C:
+			t.Fatalf("timed out waiting for response %d", expectedID)
+		}
 	}
-	return ""
 }
