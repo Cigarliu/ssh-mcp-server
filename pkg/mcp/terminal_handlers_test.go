@@ -70,6 +70,17 @@ func TestConnectionListRedactsSavedHostCredentials(t *testing.T) {
 	if strings.Contains(string(encoded), "not-for-model-output") {
 		t.Fatalf("connection_list exposed a saved password: %s", encoded)
 	}
+	payload, ok := output.(map[string]any)
+	if !ok {
+		t.Fatalf("connection_list output type = %T, want map[string]any", output)
+	}
+	ports, ok := payload["serial_ports"].([]string)
+	if !ok {
+		t.Fatalf("serial_ports type = %T, want []string", payload["serial_ports"])
+	}
+	if ports == nil {
+		t.Fatal("serial_ports must be an empty array, not null")
+	}
 }
 
 func TestConnectionOpenRejectsMixedTransportFields(t *testing.T) {

@@ -1,6 +1,9 @@
 package serialmcp
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestBuildModeNormalizesDefaults(t *testing.T) {
 	mode, normalized, err := buildMode(Config{Device: "/dev/ttyTEST"})
@@ -23,5 +26,31 @@ func TestBuildModeRejectsInvalidSettings(t *testing.T) {
 		if _, _, err := buildMode(config); err == nil {
 			t.Fatalf("expected invalid config to fail: %+v", config)
 		}
+	}
+}
+
+func TestListPortsNormalizesNilSlice(t *testing.T) {
+	original := getPortsList
+	getPortsList = func() ([]string, error) {
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		getPortsList = original
+	})
+
+	ports, err := ListPorts()
+	if err != nil {
+		t.Fatalf("ListPorts returned error: %v", err)
+	}
+	if ports == nil {
+		t.Fatal("ListPorts returned a nil slice")
+	}
+
+	encoded, err := json.Marshal(map[string]any{"serial_ports": ports})
+	if err != nil {
+		t.Fatalf("marshal ports: %v", err)
+	}
+	if string(encoded) != `{"serial_ports":[]}` {
+		t.Fatalf("encoded ports = %s, want empty JSON array", encoded)
 	}
 }

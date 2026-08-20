@@ -45,12 +45,18 @@ type Manager struct {
 	connections map[string]*Connection
 }
 
+var getPortsList = goserial.GetPortsList
+
 func NewManager() *Manager {
 	return &Manager{connections: make(map[string]*Connection)}
 }
 
 func ListPorts() ([]string, error) {
-	return goserial.GetPortsList()
+	ports, err := getPortsList()
+	if ports == nil {
+		ports = []string{}
+	}
+	return ports, err
 }
 
 func (m *Manager) Open(config Config) (*Connection, error) {
