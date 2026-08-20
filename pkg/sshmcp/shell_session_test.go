@@ -119,8 +119,8 @@ func TestStripANSI(t *testing.T) {
 		},
 		{
 			name:     "complex htop process line",
-			input:    "\x1b[10d\x1b[0m\x1b[30m\x1b[42m    PID USER      PRI  NI  VIRT   RES   SHR S \x1b[30m\x1b[46mCPU%\x1b[30m\x1b[42mMEM%   TIME+  Command\x1b[K\n\x1b[11d\x1b[30m\x1b[46m3225996 cigar      20   0  8948  5072  3480 R 100.  0.0  0:00.08 htop\x1b[K",
-			expected: "d    PID USER      PRI  NI  VIRT   RES   SHR S CPU%MEM%   TIME+  Command\nd3225996 cigar      20   0  8948  5072  3480 R 100.  0.0  0:00.08 htop",
+			input:    "\x1b[10d\x1b[0m\x1b[30m\x1b[42m    PID USER      PRI  NI  VIRT   RES   SHR S \x1b[30m\x1b[46mCPU%\x1b[30m\x1b[42mMEM%   TIME+  Command\x1b[K\n\x1b[11d\x1b[30m\x1b[46m3225996 demo-user  20   0  8948  5072  3480 R 100.  0.0  0:00.08 htop\x1b[K",
+			expected: "d    PID USER      PRI  NI  VIRT   RES   SHR S CPU%MEM%   TIME+  Command\nd3225996 demo-user  20   0  8948  5072  3480 R 100.  0.0  0:00.08 htop",
 		},
 	}
 

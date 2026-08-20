@@ -14,10 +14,6 @@ import (
 const defaultConfig = `# SSH MCP Server Configuration
 # Generated automatically on first run
 
-server:
-  name: "ssh-mcp-server"
-  version: "1.0.0"
-
 ssh:
   default_port: 22
   timeout: 30s
@@ -35,7 +31,7 @@ sftp:
   chunk_size: 4194304        # 4MB in bytes
   transfer_timeout: 5m
 
-# files exposes the ten primary remote-operation tools, including compact SFTP tools. Use core for SSH and terminal-only access or advanced for all tools.
+# files exposes eleven primary remote-operation tools, including compact SFTP tools. Use core for SSH and terminal-only access or advanced for compatibility and diagnostics.
 tools:
   profile: files
 
@@ -67,7 +63,6 @@ logging:
 
 // Config represents the application configuration
 type Config struct {
-	Server  ServerConfig  `mapstructure:"server"`
 	SSH     SSHConfig     `mapstructure:"ssh"`
 	Session SessionConfig `mapstructure:"session"`
 	SFTP    SFTPConfig    `mapstructure:"sftp"`
@@ -75,12 +70,6 @@ type Config struct {
 	Hosts   HostsConfig   `mapstructure:"hosts"`
 	State   StateConfig   `mapstructure:"state"`
 	Logging logger.Config `mapstructure:"logging"`
-}
-
-// ServerConfig represents the server configuration
-type ServerConfig struct {
-	Name    string `mapstructure:"name"`
-	Version string `mapstructure:"version"`
 }
 
 // SSHConfig represents the SSH configuration
@@ -252,8 +241,6 @@ func isConfigNotFound(err error) bool {
 
 // setDefaults sets the default configuration values.
 func setDefaults(v *viper.Viper) {
-	v.SetDefault("server.name", "ssh-mcp-server")
-	v.SetDefault("server.version", "1.0.0")
 	v.SetDefault("ssh.default_port", 22)
 	v.SetDefault("ssh.timeout", "30s")
 	v.SetDefault("ssh.keepalive_interval", "30s")

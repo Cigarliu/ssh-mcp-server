@@ -2,6 +2,7 @@ package sshmcp
 
 import (
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -28,43 +29,28 @@ func (w *testWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// Test configuration functions
-
-// getTestHost returns the test SSH host from environment variable or default
+// getTestHost returns the opt-in SSH integration-test host.
 func getTestHost() string {
-	host := os.Getenv("TEST_SSH_HOST")
-	if host == "" {
-		host = "[REDACTED_HOST]"
-	}
-	return host
+	return os.Getenv("SSHMCP_TEST_SSH_HOST")
 }
 
-// getTestPort returns the test SSH port from environment variable or default
+// getTestPort returns the opt-in SSH integration-test port.
 func getTestPort() int {
-	port := os.Getenv("TEST_SSH_PORT")
-	if port == "" {
+	port, err := strconv.Atoi(os.Getenv("SSHMCP_TEST_SSH_PORT"))
+	if err != nil || port < 1 || port > 65535 {
 		return 22
 	}
-	// In real code, would convert string to int
-	return 22
+	return port
 }
 
-// getTestUser returns the test SSH username from environment variable or default
+// getTestUser returns the opt-in SSH integration-test username.
 func getTestUser() string {
-	user := os.Getenv("TEST_SSH_USER")
-	if user == "" {
-		return "test-user"
-	}
-	return user
+	return os.Getenv("SSHMCP_TEST_SSH_USER")
 }
 
-// getTestPassword returns the test SSH password from environment variable or default
+// getTestPassword returns the opt-in SSH integration-test password.
 func getTestPassword() string {
-	pass := os.Getenv("TEST_SSH_PASSWORD")
-	if pass == "" {
-		pass = "[REDACTED_PASSWORD]"
-	}
-	return pass
+	return os.Getenv("SSHMCP_TEST_SSH_PASSWORD")
 }
 
 func getEnvOrDefault(key, defaultValue string) string {

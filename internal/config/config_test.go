@@ -50,8 +50,8 @@ func TestLoadConfigWithPathGeneratesExplicitMissingConfig(t *testing.T) {
 	if _, err := os.Stat(expectedPath); err != nil {
 		t.Fatalf("generated explicit config was not written: %v", err)
 	}
-	if cfg.Server.Name != "ssh-mcp-server" {
-		t.Fatalf("server name = %q, want ssh-mcp-server", cfg.Server.Name)
+	if cfg.State.DatabasePath == "" {
+		t.Fatal("state database path was not initialized")
 	}
 }
 

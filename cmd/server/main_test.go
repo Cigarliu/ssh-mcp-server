@@ -51,10 +51,7 @@ func assertStdioProfile(t *testing.T, profile string, expectedTools []string) {
 	t.Helper()
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	statePath := filepath.ToSlash(filepath.Join(filepath.Dir(configPath), "state.db"))
-	config := fmt.Sprintf(`server:
-  name: ssh-mcp-server
-  version: test
-session:
+	config := fmt.Sprintf(`session:
   max_sessions: 100
   max_sessions_per_host: 10
   idle_timeout: 10m

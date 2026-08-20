@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/test-user/sshmcp/pkg/sshmcp"
+	"github.com/cigar/sshmcp/pkg/sshmcp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,11 +39,11 @@ func createTestSession(t *testing.T, sm *sshmcp.SessionManager) *sshmcp.Session 
 
 	authConfig := &sshmcp.AuthConfig{
 		Type:     sshmcp.AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: os.Getenv("SSHMCP_TEST_SSH_PASSWORD"),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "root")
+	host := os.Getenv("SSHMCP_TEST_SSH_HOST")
+	username := os.Getenv("SSHMCP_TEST_SSH_USER")
 
 	session, err := sm.CreateSession(host, 22, username, authConfig, "")
 	if err != nil {
@@ -57,6 +57,11 @@ func requireSSHIntegration(t *testing.T) {
 	t.Helper()
 	if os.Getenv("RUN_SSH_INTEGRATION") != "1" {
 		t.Skip("set RUN_SSH_INTEGRATION=1 to run SSH integration tests")
+	}
+	for _, key := range []string{"SSHMCP_TEST_SSH_HOST", "SSHMCP_TEST_SSH_USER", "SSHMCP_TEST_SSH_PASSWORD"} {
+		if os.Getenv(key) == "" {
+			t.Skipf("set %s to run SSH integration tests", key)
+		}
 	}
 }
 
@@ -136,11 +141,13 @@ func TestHandleSSHConnectWithSudoPassword(t *testing.T) {
 	server, sm := setupTestServer(t)
 	defer sm.Close()
 
-	// 使用真实的 SSH 连接信息
-	host := "[REDACTED_HOST]"
-	username := "test-user"
-	password := "[REDACTED_PASSWORD]"
-	sudoPassword := "[REDACTED_PASSWORD]"
+	host := os.Getenv("SSHMCP_TEST_SSH_HOST")
+	username := os.Getenv("SSHMCP_TEST_SSH_USER")
+	password := os.Getenv("SSHMCP_TEST_SSH_PASSWORD")
+	sudoPassword := os.Getenv("SSHMCP_TEST_SSH_SUDO_PASSWORD")
+	if sudoPassword == "" {
+		sudoPassword = password
+	}
 
 	t.Logf("测试连接到 %s@%s 并配置 sudo 密码", username, host)
 

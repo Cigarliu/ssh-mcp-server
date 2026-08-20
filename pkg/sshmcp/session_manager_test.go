@@ -26,7 +26,7 @@ func TestSessionManager_CreateSession(t *testing.T) {
 
 	// 测试创建会话
 	authConfig := &AuthConfig{
-		Type:     AuthTypePrivateKey,
+		Type:       AuthTypePrivateKey,
 		PrivateKey: "test-key", // 这个会失败，但我们可以测试错误处理
 	}
 
@@ -196,7 +196,7 @@ func TestAuthConfig_AuthMethod(t *testing.T) {
 // TestSession_GetShellSession tests GetShellSession method
 func TestSession_GetShellSession(t *testing.T) {
 	session := &Session{
-		ID:     "test-id",
+		ID:           "test-id",
 		ShellSession: nil,
 	}
 
@@ -230,11 +230,11 @@ func TestSessionManager_AliasExists(t *testing.T) {
 	// 创建带别名的会话
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	session, err := sm.CreateSession(host, 22, username, authConfig, "prod")
 	if err != nil {
@@ -269,11 +269,11 @@ func TestSessionManager_GetSessionByAlias(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	session, err := sm.CreateSession(host, 22, username, authConfig, "test-alias")
 	if err != nil {
@@ -315,11 +315,11 @@ func TestSessionManager_GetSessionByIDOrAlias(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	session, err := sm.CreateSession(host, 22, username, authConfig, "multi")
 	if err != nil {
@@ -364,9 +364,9 @@ func TestSessionManager_GenerateUniqueAlias(t *testing.T) {
 
 	// 模拟添加别名为 "s1" 的会话
 	sm.sessions.Store("fake-id", &Session{
-		ID:     "fake-id",
-		Alias:  "s1",
-		State:  SessionStateActive,
+		ID:    "fake-id",
+		Alias: "s1",
+		State: SessionStateActive,
 	})
 
 	// 现在应该生成 "s2"
@@ -375,9 +375,9 @@ func TestSessionManager_GenerateUniqueAlias(t *testing.T) {
 
 	// 再添加一个
 	sm.sessions.Store("fake-id-2", &Session{
-		ID:     "fake-id-2",
-		Alias:  "s2",
-		State:  SessionStateActive,
+		ID:    "fake-id-2",
+		Alias: "s2",
+		State: SessionStateActive,
 	})
 
 	// 应该生成 "s3"
@@ -387,9 +387,9 @@ func TestSessionManager_GenerateUniqueAlias(t *testing.T) {
 	// 测试自定义 base
 	// 模拟添加别名为 "prod1" 的会话
 	sm.sessions.Store("fake-prod-1", &Session{
-		ID:     "fake-prod-1",
-		Alias:  "prod1",
-		State:  SessionStateActive,
+		ID:    "fake-prod-1",
+		Alias: "prod1",
+		State: SessionStateActive,
 	})
 
 	// 使用 "prod" 作为 base，应该生成 "prod2"（因为 prod1 已存在）
@@ -418,11 +418,11 @@ func TestSessionManager_AliasConflict(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	// 创建第一个会话，别名为 "conflict"
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "conflict")
@@ -459,11 +459,11 @@ func TestSessionManager_AutoGenerateAlias(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	// 创建会话时不指定别名，应该自动生成
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "")
@@ -522,11 +522,11 @@ func TestSessionManager_ReconnectWithSameAlias(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	// 创建第一个会话，别名为 "rk3562"
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "rk3562")
@@ -581,11 +581,11 @@ func TestSessionManager_ReconnectUnhealthySession(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	// 创建第一个会话
 	session1, err := sm.CreateSession(host, 22, username, authConfig, "unhealthy-test")
@@ -642,11 +642,11 @@ func TestSessionManager_IsSessionHealthy(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	// 创建会话
 	session, err := sm.CreateSession(host, 22, username, authConfig, "health-check")
@@ -690,11 +690,11 @@ func TestSessionManager_GetSessionByAliasWithHealthCheck(t *testing.T) {
 
 	authConfig := &AuthConfig{
 		Type:     AuthTypePassword,
-		Password: getEnvOrDefault("SSH_PASSWORD", "root"),
+		Password: getEnvOrDefault("SSHMCP_TEST_SSH_PASSWORD", ""),
 	}
 
-	host := getEnvOrDefault("SSH_HOST", "[REDACTED_HOST]")
-	username := getEnvOrDefault("SSH_USER", "test-user")
+	host := getEnvOrDefault("SSHMCP_TEST_SSH_HOST", "")
+	username := getEnvOrDefault("SSHMCP_TEST_SSH_USER", "")
 
 	// 创建会话
 	session, err := sm.CreateSession(host, 22, username, authConfig, "health-alias")
@@ -715,4 +715,3 @@ func TestSessionManager_GetSessionByAliasWithHealthCheck(t *testing.T) {
 	_, _, err = sm.GetSessionByAliasWithHealthCheck("non-existent")
 	assert.Error(t, err)
 }
-

@@ -1,9 +1,5 @@
 # SSH MCP Server Configuration
 
-server:
-  name: "ssh-mcp-server"
-  version: "1.0.0"
-
 ssh:
   default_port: 22
   timeout: 30s

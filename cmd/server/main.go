@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/cigar/sshmcp/internal/buildinfo"
 	"github.com/cigar/sshmcp/internal/state"
 	"github.com/cigar/sshmcp/pkg/mcp"
 	"github.com/cigar/sshmcp/pkg/sshmcp"
@@ -31,7 +32,7 @@ func main() {
 	log.Logger = *logger
 
 	log.Info().
-		Str("version", cfg.Server.Version).
+		Str("version", buildinfo.Version).
 		Msg("Starting SSH MCP Server")
 
 	// 创建会话管理器

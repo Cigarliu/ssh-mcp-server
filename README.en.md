@@ -2,110 +2,100 @@
 
 [简体中文](README.md)
 
-An MCP server for SSH and serial terminals. It separates connection management, terminal byte streams, and TUI screen projection so AI clients can operate remote commands, interactive programs, and serial consoles through a small, deterministic tool surface.
+A stdio MCP server for AI clients that need SSH command execution, file transfer, interactive terminals, and serial consoles. Connection profiles and execution history are shared by MCP instances on the same machine. After a profile is registered, models operate through a stable connection ID instead of receiving saved targets, usernames, or authentication details again.
 
-## Capabilities
+## Highlights
 
-- Persistent SSH connection IDs: name a connection and description once, then later conversations and instances operate by ID without re-exposing the target or username.
-- SQLite execution history for `ssh_exec` and `terminal_interact`, queryable across restarts and MCP instances.
-- Non-interactive command execution plus SFTP transfer and directory operations.
-- A shared SSH/serial terminal abstraction with atomic write/read turns, stream offsets, bounded output, and explicit completion states.
-- SSH TUI screen projection. Serial connections expose raw byte streams for device CLIs, REPLs, and logs.
-- MCP protocol data is written only to stdout; logs stay on stderr so they cannot corrupt the handshake.
+- SSH command execution, SFTP transfer, and directory management.
+- SSH shell/TUI and serial terminals with controlled read/write turns, stream offsets, and explicit completion states.
+- SQLite-backed connection profiles and execution history that survive restarts and are shared across local MCP instances.
+- A small default surface: the `files` profile exposes eleven everyday tools.
+- Strict stdio boundaries: MCP data uses stdout only; logs use stderr only.
 
-## Quick Start
+## Install
 
-Go `1.24.4` or newer is required.
+**Recommended: use a prebuilt archive from GitHub Releases.** Download the archive for your platform, extract it, and place `sshmcp` (`sshmcp.exe` on Windows) in a stable directory. Every archive contains the example configuration, both READMEs, and the license.
+
+Building from source requires Go `1.24.4` or newer:
 
 ```bash
 git clone https://github.com/Cigarliu/ssh-mcp-server.git
 cd ssh-mcp-server
-go build -o bin/sshmcp ./cmd/server
-cp config.example.yaml .sshmcp.yaml
+go build -o sshmcp ./cmd/server
 ```
 
-Configure the binary as an stdio MCP server:
+On first start, the server writes a default configuration when none exists:
+
+- Windows: `%USERPROFILE%\.sshmcp\config.yaml`
+- macOS/Linux: `~/.sshmcp/config.yaml`
+
+Pass `-config <path>` to use a different file.
+
+## MCP Client Configuration
+
+Register the binary as a stdio MCP server. For example, on Windows:
 
 ```json
 {
   "mcpServers": {
     "ssh-mcp": {
-      "command": "/absolute/path/ssh-mcp-server/bin/sshmcp",
-      "args": ["-config", "/absolute/path/ssh-mcp-server/.sshmcp.yaml"]
+      "command": "C:\\Tools\\sshmcp\\sshmcp.exe",
+      "args": ["-config", "C:\\Users\\you\\.sshmcp\\config.yaml"]
     }
   }
 }
 ```
 
-The server searches `-config`, `.mcp.yaml`, `.sshmcp.yaml`, and `~/.sshmcp/config.yaml` in that order. It generates a default configuration when none exists.
+On macOS or Linux, use the corresponding absolute paths. Do not make a stdio MCP server request a sudo password at startup: it consumes stdin and breaks the MCP handshake.
 
-## Tool Surface
+## Connections and History
 
-The default `files` profile exposes eleven tools to the model.
-
-| Profile | Tools | Purpose |
-| --- | ---: | --- |
-| `core` | 9 | Everyday SSH, serial, persistent-history, and terminal workflows |
-| `files` | 11 | `core` plus task-oriented SFTP transfer and management |
-| `advanced` | 28 | Legacy granular SSH, SFTP, migration, and diagnostic tools |
-
-Default `files` tools:
-
-| Tool | Purpose |
-| --- | --- |
-| `connection_list` | List active connections, persistent SSH IDs/descriptions, and local serial ports without returning saved targets or usernames |
-| `connection_open` | Register a model-named SSH `connection_id` and description on first direct use; later open it by ID only |
-| `connection_close` | Close a connection and its attached terminal |
-| `connection_history` | Read durable command and terminal interaction history across instances and restarts |
-| `ssh_exec` | Run a non-interactive SSH command |
-| `sftp_transfer` | Upload or download one file |
-| `sftp_manage` | List directories, create directories, or delete paths |
-| `terminal_open` | Create a transport-neutral terminal on an open connection |
-| `terminal_interact` | Atomically write input and wait for a literal `until` value or quiet |
-| `terminal_view` | Read an SSH TUI screen projection, not ordinary command output |
-| `terminal_close` | Close a terminal; serial terminals also release the device |
-
-In the `files` profile, use `sftp_transfer` for upload/download and `sftp_manage` for listing, creating, or deleting paths.
-
-## Recommended Workflows
-
-When first registering an SSH connection, the model must choose a short, stable, readable ID (lowercase letter first; digits, `-`, and `_` are allowed) and give it a user-facing description:
+For a first direct SSH connection, the model should create a short, stable, readable `connection_id` and a user-facing `description`:
 
 ```json
 {
   "transport": "ssh",
   "connection_id": "prod-web-hk",
-  "description": "Hong Kong production web server for deploys and log triage",
+  "description": "Hong Kong production web server for deployments and log triage",
   "host": "203.0.113.10",
   "username": "deploy",
   "private_key": "~/.ssh/id_ed25519"
 }
 ```
 
-After a successful connection, any later conversation or MCP instance opens it with only:
+After a successful connection, later conversations and MCP instances need only:
 
 ```json
 { "transport": "ssh", "connection_id": "prod-web-hk" }
 ```
 
-Use `connection_open -> ssh_exec -> connection_close` for ordinary SSH commands. Query durable records with `connection_history(connection_id="prod-web-hk")`.
+`connection_list` returns only IDs, descriptions, active state, and locally visible serial ports. It never returns saved addresses, usernames, passwords, or private-key paths. `connection_history` reads durable `ssh_exec` and `terminal_interact` records.
 
-For stateful shells, REPLs, or interactive programs:
+For ordinary commands:
+
+```text
+connection_open -> ssh_exec -> connection_close
+```
+
+For interactive shells, REPLs, and TUIs:
 
 ```text
 connection_open -> terminal_open -> terminal_interact -> terminal_close -> connection_close
 ```
 
-`terminal_interact` returns a structured state rather than depending on arbitrary sleeps:
+`terminal_interact` defaults to `wait: "quiet"`. Use `wait: "until"` only for a known complete prompt or delimiter; `until` is a literal, not a regular expression. When the result is `limit_reached`, continue with `next_offset`.
 
-- `matched`: the literal `until` value was found.
-- `stable`: output arrived and then reached the requested quiet period.
-- `limit_reached`: output reached `max_bytes`; continue with `next_offset`.
-- `timeout` or `closed`: inspect `stop_reason` before deciding whether to continue.
+## Tool Profiles
 
-Use the default `wait: "quiet"` for normal commands. Use `wait: "until"` with `until` only for a known complete prompt or delimiter; it is not a regular expression. Use `wait: "none"` only when a write does not need a response yet. For a TUI, open an SSH terminal with `profile: "tui"` and call `terminal_view`. Serial terminals use `profile: "shell"` and `terminal_interact` for raw data and have no screen projection.
+| Profile | Tools | Use case |
+| --- | ---: | --- |
+| `core` | 9 | SSH, serial, history, and terminal operations |
+| `files` | 11 | Default; adds task-oriented SFTP operations to `core` |
+| `advanced` | 28 | Legacy granular tools, compatibility migrations, and diagnostics |
 
-## Configuration
+New integrations should use the `files` profile and `connection_id`-based tools. Legacy host-management tools and the old `hostname` argument remain in `advanced` only for compatibility.
+
+## Configuration and Security
 
 Minimal configuration:
 
@@ -117,32 +107,22 @@ logging:
   level: info
   format: console
   output: stderr
-
-hosts:
-  lab:
-    host: "192.168.1.100"
-    port: 22
-    username: "operator"
-    private_key_path: "~/.ssh/id_ed25519"
-    description: "Lab host"
 ```
 
-The default SQLite path is `~/.sshmcp/state.db`; override it when needed:
+The default state database is `~/.sshmcp/state.db`. Override it when needed:
 
 ```yaml
 state:
   database_path: "/absolute/path/to/sshmcp-state.db"
 ```
 
-The database uses WAL and a write wait, so multiple MCP instances on the same machine can share it. It stores registered connection parameters and execution history; keep it in a protected local directory and never place it in OneDrive, Dropbox, a network share, or source control. `hosts` remains a compatibility import source: only missing IDs are imported at startup, and SQLite owns later changes.
+SQLite uses WAL and a write wait so several MCP instances on the same machine can share state. The database contains connection parameters and execution history. Keep it in a protected local directory; never place it in OneDrive, Dropbox, a network share, or source control. `hosts` is only a one-time compatibility import source; SQLite owns subsequent state.
 
-`connection_list` returns only connection IDs and descriptions, never saved passwords, private-key paths, addresses, or usernames. The legacy `hostname` argument and `advanced` host-management tools remain for compatibility, but new calls should use `connection_id`.
-
-See [config.example.yaml](config.example.yaml) for all fields and defaults.
+See [config.example.yaml](config.example.yaml) for all fields. See [SECURITY.md](SECURITY.md) for security reporting and credential handling.
 
 ## Serial
 
-Call `connection_list` to discover serial ports, then open one with parameters such as:
+Use `connection_list` to find locally visible serial ports, then open one with `connection_open`:
 
 ```json
 {
@@ -155,34 +135,26 @@ Call `connection_list` to discover serial ports, then open one with parameters s
 }
 ```
 
-On Linux, the account running the MCP server must have device access. A common setup is to add it to `dialout` and sign in again:
+On Linux, the account running the server needs device access, commonly by joining the `dialout` group and signing in again.
 
-```bash
-sudo usermod -aG dialout "$USER"
-```
-
-Do not make an MCP stdio service request a sudo password at startup: it consumes stdin and breaks the MCP handshake.
-
-## Development and Verification
+## Development and Maintenance
 
 ```bash
 go test ./...
 go vet ./...
-go test -race ./pkg/terminal ./pkg/serialmcp ./pkg/mcp
+go test -race ./...
 ```
 
-Local SSH and serial integration tests are explicitly opt-in so the default suite never connects to a device or needs credentials. Their environment variables are defined in `pkg/mcp/terminal_integration_test.go`.
+Local SSH and serial integration tests are explicitly opt-in. Default tests do not connect to devices or read real credentials.
 
-## Releases
-
-Pushing a version tag beginning with `v` automatically creates a GitHub Release with Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64) binary archives:
+When a maintainer pushes a version tag, GitHub Actions builds Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64) archives and creates the matching GitHub Release:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
-Each archive contains `sshmcp`, the example configuration, both READMEs, and the license. The `Release` workflow can also be started manually from GitHub Actions by entering a tag.
+Release builds inject the tag into the MCP server version. The GitHub Release page is the download and release-notes entry point for each version.
 
 ## License
 

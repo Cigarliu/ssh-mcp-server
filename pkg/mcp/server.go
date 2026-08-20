@@ -3,9 +3,10 @@ package mcp
 import (
 	"context"
 	"fmt"
-
-	"github.com/cigar/sshmcp/internal/state"
 	"strings"
+
+	"github.com/cigar/sshmcp/internal/buildinfo"
+	"github.com/cigar/sshmcp/internal/state"
 
 	"github.com/cigar/sshmcp/pkg/serialmcp"
 	"github.com/cigar/sshmcp/pkg/sshmcp"
@@ -54,7 +55,7 @@ func NewServerWithProfileAndStore(sessionManager *sshmcp.SessionManager, hostMan
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "ssh-mcp-server",
-		Version: "1.0.0",
+		Version: buildinfo.Version,
 	}, &mcp.ServerOptions{
 		Instructions: toolInstructions(profile),
 	})
