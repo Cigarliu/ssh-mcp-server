@@ -43,9 +43,13 @@ tools:
 # On Linux, run the server as an account permitted to open the device (commonly
 # the dialout group), or launch the service with the necessary device access.
 
-# Predefined hosts for quick connection
-# You can reference these hosts by name with connection_open(hostname="prod").
-# connection_list returns the saved host names without exposing credentials.
+# Shared SQLite state for persistent connection IDs and execution history.
+state:
+  database_path: ""
+
+# Compatibility import source. Each key becomes a persistent connection_id when
+# absent from SQLite. New connections should be registered via connection_open
+# with connection_id and description, then reopened by ID only.
 hosts:
   # Example:
   # prod:
@@ -69,6 +73,7 @@ type Config struct {
 	SFTP    SFTPConfig    `mapstructure:"sftp"`
 	Tools   ToolConfig    `mapstructure:"tools"`
 	Hosts   HostsConfig   `mapstructure:"hosts"`
+	State   StateConfig   `mapstructure:"state"`
 	Logging logger.Config `mapstructure:"logging"`
 }
 
@@ -104,6 +109,11 @@ type SFTPConfig struct {
 // ToolConfig controls which MCP tools are exposed to the client.
 type ToolConfig struct {
 	Profile string `mapstructure:"profile"`
+}
+
+// StateConfig controls the local SQLite state shared by MCP instances.
+type StateConfig struct {
+	DatabasePath string `mapstructure:"database_path"`
 }
 
 // HostConfig represents a predefined SSH host configuration
@@ -177,6 +187,13 @@ func LoadConfigWithPath(configPath string) (*Config, string, error) {
 	if err := v.Unmarshal(&config); err != nil {
 		return nil, "", fmt.Errorf("unmarshal config: %w", err)
 	}
+	if config.State.DatabasePath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, "", fmt.Errorf("get home directory for state database: %w", err)
+		}
+		config.State.DatabasePath = filepath.Join(homeDir, ".sshmcp", "state.db")
+	}
 
 	return &config, v.ConfigFileUsed(), nil
 }
@@ -249,6 +266,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("sftp.chunk_size", int64(4194304))
 	v.SetDefault("sftp.transfer_timeout", "5m")
 	v.SetDefault("tools.profile", "files")
+	v.SetDefault("state.database_path", "")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.format", "console")
 	v.SetDefault("logging.output", "stderr")

@@ -6,7 +6,8 @@
 
 ## 能力
 
-- SSH 密码和私钥认证，支持本地保存的主机配置与连接别名。
+- 持久 SSH 连接目录：模型首次命名 `connection_id` 并填写描述，后续对话和实例只按 ID 操作，不重新暴露目标地址或用户名。
+- SQLite 执行历史：保存 `ssh_exec` 与 `terminal_interact` 的输入、结果和时间，可跨重启查询。
 - 非交互命令执行、SFTP 传输和目录操作。
 - 统一的 SSH/串口终端：写入与读取原子化，输出有偏移量、大小上限和明确的完成状态。
 - SSH TUI 屏幕投影；串口保留原始字节流，适合设备 CLI、REPL 和日志控制台。
@@ -40,21 +41,22 @@ cp config.example.yaml .sshmcp.yaml
 
 ## 工具面
 
-默认使用 `files` profile，向模型暴露 10 个工具。
+默认使用 `files` profile，向模型暴露 11 个工具。
 
 | Profile | 工具数 | 用途 |
 | --- | ---: | --- |
-| `core` | 8 | SSH、串口与终端的日常操作 |
-| `files` | 10 | `core` 加聚合的 SFTP 上传、下载和目录操作 |
-| `advanced` | 27 | 兼容旧的细粒度 SSH/SFTP/诊断工具 |
+| `core` | 9 | SSH、串口、持久历史与终端的日常操作 |
+| `files` | 11 | `core` 加聚合的 SFTP 上传、下载和目录操作 |
+| `advanced` | 28 | 兼容旧的细粒度 SSH/SFTP/诊断工具 |
 
 默认 `files` 工具：
 
 | 工具 | 说明 |
 | --- | --- |
-| `connection_list` | 列出活跃连接、已保存 SSH 主机和本机可见串口 |
-| `connection_open` | 创建 SSH 或串口连接；SSH 在已保存主机和直连参数之间二选一 |
+| `connection_list` | 列出活跃连接、持久 SSH 连接 ID/描述和本机可见串口；不会返回已保存目标或用户名 |
+| `connection_open` | 首次直连时登记模型命名的 SSH `connection_id` 与描述；后续只按 ID 打开 |
 | `connection_close` | 关闭连接及附属终端 |
+| `connection_history` | 查询跨实例、跨重启保存的命令和终端交互历史 |
 | `ssh_exec` | 执行非交互 SSH 命令 |
 | `sftp_transfer` | 上传或下载单个文件 |
 | `sftp_manage` | 列出目录、创建目录或删除路径 |
@@ -67,7 +69,26 @@ cp config.example.yaml .sshmcp.yaml
 
 ## 推荐调用路径
 
-普通 SSH 命令使用 `connection_open -> ssh_exec -> connection_close`。
+首次登记 SSH 连接时，模型应选择一个简短、稳定、可读的 ID（小写字母开头，可使用数字、`-` 和 `_`），并附带用户可识别的描述：
+
+```json
+{
+  "transport": "ssh",
+  "connection_id": "prod-web-hk",
+  "description": "香港生产 Web 服务器，部署与日志排查",
+  "host": "203.0.113.10",
+  "username": "deploy",
+  "private_key": "~/.ssh/id_ed25519"
+}
+```
+
+连接成功后，之后的任意对话或 MCP 实例只需调用：
+
+```json
+{ "transport": "ssh", "connection_id": "prod-web-hk" }
+```
+
+普通 SSH 命令使用 `connection_open -> ssh_exec -> connection_close`。使用 `connection_history(connection_id="prod-web-hk")` 可调出持久执行记录。
 
 需要保持上下文、使用 REPL 或运行交互程序时：
 
@@ -106,7 +127,16 @@ hosts:
     description: "Lab host"
 ```
 
-主机名称会通过 `connection_list` 返回给模型，但不会返回密码或私钥。使用 `connection_open` 的 `hostname: "lab"` 建立连接。需要从 MCP 保存或删除主机配置时，使用 `advanced` profile 下的旧管理工具。
+默认 SQLite 路径为 `~/.sshmcp/state.db`；可通过配置覆盖：
+
+```yaml
+state:
+  database_path: "/absolute/path/to/sshmcp-state.db"
+```
+
+数据库启用 WAL 和写入等待，适用于同一台机器上的多个 MCP 实例。它保存已登记连接的真实参数及执行历史，因此应放在本机受保护目录，不要放入 OneDrive、Dropbox、网络共享或版本控制。`hosts` 配置仅作为兼容导入源：启动时只导入不存在的 ID，之后 SQLite 是权威来源。
+
+`connection_list` 只返回连接 ID 和描述，不会返回已保存的密码、私钥路径、地址或用户名。旧的 `hostname` 参数和 `advanced` host 管理工具仍保留兼容性，但新调用应使用 `connection_id`。
 
 完整字段和默认值见 [config.example.yaml](config.example.yaml)。
 

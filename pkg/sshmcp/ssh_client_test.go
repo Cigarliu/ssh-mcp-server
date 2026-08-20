@@ -112,6 +112,22 @@ func TestAuthConfig_KeyboardChallenge(t *testing.T) {
 	assert.Equal(t, "test-response", answers[0])
 }
 
+func TestSSHAddressSupportsIPv4AndIPv6(t *testing.T) {
+	tests := []struct {
+		host string
+		port int
+		want string
+	}{
+		{host: "192.0.2.10", port: 22, want: "192.0.2.10:22"},
+		{host: "2001:db8::10", port: 2222, want: "[2001:db8::10]:2222"},
+	}
+	for _, test := range tests {
+		if got := sshAddress(test.host, test.port); got != test.want {
+			t.Fatalf("sshAddress(%q, %d) = %q, want %q", test.host, test.port, got, test.want)
+		}
+	}
+}
+
 // BenchmarkAuthMethods benchmarks auth method creation
 func BenchmarkAuthMethods(b *testing.B) {
 	authConfig := &AuthConfig{

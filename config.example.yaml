@@ -21,7 +21,7 @@ sftp:
   chunk_size: 4194304
   transfer_timeout: 5m
 
-# files is the default: 10 tools including compact SFTP transfer and management. core has 8 SSH/terminal tools; advanced has all 27 migration and diagnostic tools.
+# files is the default: 11 tools including persistent history and compact SFTP transfer/management. core has 9 tools; advanced has all 28 migration and diagnostic tools.
 tools:
   profile: files
 
@@ -29,9 +29,14 @@ tools:
 # On Linux, run the server as an account permitted to open the device (commonly
 # the dialout group), or launch the service with the necessary device access.
 
-# Predefined hosts for quick connection
-# You can reference these hosts by name with connection_open(hostname="prod").
-# connection_list returns the saved host names without exposing credentials.
+# Shared SQLite state for persistent connection IDs and execution history.
+# Leave blank for ~/.sshmcp/state.db.
+state:
+  database_path: ""
+
+# Compatibility import source. Each key becomes a persistent connection_id when
+# absent from SQLite. New connections should be registered via connection_open
+# with connection_id and description, then reopened by ID only.
 hosts:
   prod:
     host: "192.168.1.100"

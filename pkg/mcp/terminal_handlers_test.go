@@ -3,10 +3,12 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cigar/sshmcp/internal/state"
 	"github.com/cigar/sshmcp/pkg/sshmcp"
 )
 
@@ -51,10 +53,18 @@ func TestConnectionListRedactsSavedHostCredentials(t *testing.T) {
 		MaxSessions: 10, SessionTimeout: time.Minute, IdleTimeout: time.Minute, CleanupInterval: time.Minute, Logger: logger,
 	})
 	t.Cleanup(manager.Close)
-	hosts := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{
-		"local": {Host: "127.0.0.1", Port: 22, Username: "user", Password: "not-for-model-output"},
-	}, "", logger)
-	server, err := NewServer(manager, hosts, logger)
+	stateStore, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("open state store: %v", err)
+	}
+	t.Cleanup(func() { stateStore.Close() })
+	hosts, err := sshmcp.NewHostManagerWithStore(map[string]sshmcp.HostConfig{
+		"local": {Host: "127.0.0.1", Port: 22, Username: "user", Password: "not-for-model-output", Description: "Local test connection"},
+	}, "", logger, stateStore)
+	if err != nil {
+		t.Fatalf("new persistent host manager: %v", err)
+	}
+	server, err := NewServerWithProfileAndStore(manager, hosts, stateStore, logger, string(ToolProfileFiles))
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -67,8 +77,10 @@ func TestConnectionListRedactsSavedHostCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode output: %v", err)
 	}
-	if strings.Contains(string(encoded), "not-for-model-output") {
-		t.Fatalf("connection_list exposed a saved password: %s", encoded)
+	for _, secret := range []string{"not-for-model-output", "127.0.0.1", "\"user\""} {
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("connection_list exposed saved connection data %q: %s", secret, encoded)
+		}
 	}
 	payload, ok := output.(map[string]any)
 	if !ok {
@@ -80,6 +92,83 @@ func TestConnectionListRedactsSavedHostCredentials(t *testing.T) {
 	}
 	if ports == nil {
 		t.Fatal("serial_ports must be an empty array, not null")
+	}
+	saved, ok := payload["saved_ssh_hosts"].([]map[string]any)
+	if !ok || len(saved) != 1 {
+		t.Fatalf("saved_ssh_hosts = %#v, want one sanitized profile", payload["saved_ssh_hosts"])
+	}
+	if saved[0]["connection_id"] != "local" || saved[0]["description"] != "Local test connection" {
+		t.Fatalf("unexpected saved connection summary: %#v", saved[0])
+	}
+}
+
+func TestConnectionHistoryReturnsPersistentRecordsWithoutTargetDetails(t *testing.T) {
+	logger := setupTestLogger()
+	manager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{MaxSessions: 10, SessionTimeout: time.Minute, IdleTimeout: time.Minute, CleanupInterval: time.Minute, Logger: logger})
+	t.Cleanup(manager.Close)
+	stateStore, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("open state store: %v", err)
+	}
+	t.Cleanup(func() { stateStore.Close() })
+	hosts, err := sshmcp.NewHostManagerWithStore(map[string]sshmcp.HostConfig{
+		"prod-web": {Host: "10.22.33.44", Port: 22, Username: "deploy", Password: "secret", Description: "Production web server"},
+	}, "", logger, stateStore)
+	if err != nil {
+		t.Fatalf("new persistent host manager: %v", err)
+	}
+	server, err := NewServerWithProfileAndStore(manager, hosts, stateStore, logger, string(ToolProfileFiles))
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	if err := stateStore.RecordHistory(state.HistoryEntry{ConnectionID: "prod-web", DescriptionSnapshot: "Production web server", Kind: "exec", Input: "uname -a", Output: "Linux", State: "success"}); err != nil {
+		t.Fatalf("record history: %v", err)
+	}
+	_, output, err := server.handleConnectionHistory(context.Background(), nil, map[string]any{"connection_id": "prod-web"})
+	if err != nil {
+		t.Fatalf("connection_history: %v", err)
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("encode history: %v", err)
+	}
+	for _, secret := range []string{"10.22.33.44", "deploy", "secret"} {
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("connection_history exposed saved connection data %q: %s", secret, encoded)
+		}
+	}
+}
+
+func TestPersistentDirectSSHRequiresModelChosenIDAndDescription(t *testing.T) {
+	logger := setupTestLogger()
+	manager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{MaxSessions: 10, SessionTimeout: time.Minute, IdleTimeout: time.Minute, CleanupInterval: time.Minute, Logger: logger})
+	t.Cleanup(manager.Close)
+	stateStore, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("open state store: %v", err)
+	}
+	t.Cleanup(func() { stateStore.Close() })
+	hosts, err := sshmcp.NewHostManagerWithStore(map[string]sshmcp.HostConfig{}, "", logger, stateStore)
+	if err != nil {
+		t.Fatalf("new persistent host manager: %v", err)
+	}
+	server, err := NewServerWithProfileAndStore(manager, hosts, stateStore, logger, string(ToolProfileFiles))
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	base := map[string]any{"transport": "ssh", "host": "203.0.113.1", "username": "deploy", "password": "secret"}
+	for _, args := range []map[string]any{
+		base,
+		{"transport": "ssh", "host": "203.0.113.1", "username": "deploy", "password": "secret", "connection_id": "prod-web"},
+		{"transport": "ssh", "host": "203.0.113.1", "username": "deploy", "password": "secret", "connection_id": "Prod-Web", "description": "Production web server"},
+	} {
+		result, _, err := server.handleConnectionOpen(context.Background(), nil, args)
+		if err != nil {
+			t.Fatalf("connection_open returned handler error: %v", err)
+		}
+		if result == nil || !result.IsError {
+			t.Fatalf("connection_open accepted incomplete persistent metadata: %#v", args)
+		}
 	}
 }
 

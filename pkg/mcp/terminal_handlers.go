@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cigar/sshmcp/internal/state"
 	"github.com/cigar/sshmcp/pkg/serialmcp"
 	"github.com/cigar/sshmcp/pkg/sshmcp"
 	"github.com/cigar/sshmcp/pkg/terminal"
@@ -26,12 +27,12 @@ func (s *Server) handleConnectionOpen(_ context.Context, _ *mcp.CallToolRequest,
 			return terminalError(err)
 		}
 		return terminalJSON(map[string]any{
-			"connection_id": session.ID,
+			"connection_id": s.connectionIDForSession(session),
 			"transport":     "ssh",
 			"capabilities":  s.sshCapabilities(),
 		})
 	case "serial":
-		if hasAnyArg(args, "hostname", "host", "port", "username", "password", "private_key", "passphrase", "sudo_password", "alias") {
+		if hasAnyArg(args, "connection_id", "description", "hostname", "host", "port", "username", "password", "private_key", "passphrase", "sudo_password", "alias") {
 			return terminalError(fmt.Errorf("serial connections cannot include SSH fields"))
 		}
 		device := stringArg(args, "device")
@@ -60,12 +61,24 @@ func (s *Server) handleConnectionOpen(_ context.Context, _ *mcp.CallToolRequest,
 
 func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error) {
 	var host, username, password, privateKey string
+	var profileToSave *sshmcp.HostConfig
 	port := 22
-	if hostname := stringArg(args, "hostname"); hostname != "" {
-		if hasAnyArg(args, "host", "port", "username", "password", "private_key") {
-			return nil, fmt.Errorf("hostname cannot be combined with direct SSH address, port, username, or authentication fields")
+	connectionID := stringArg(args, "connection_id")
+	hostname := stringArg(args, "hostname")
+	if connectionID != "" && hostname != "" {
+		return nil, fmt.Errorf("connection_id cannot be combined with deprecated hostname")
+	}
+	if hostname != "" {
+		connectionID = hostname
+	}
+	if connectionID != "" && !hasAnyArg(args, "host", "port", "username", "password", "private_key") {
+		if stringArg(args, "alias") != "" {
+			return nil, fmt.Errorf("alias cannot be combined with persistent connection_id")
 		}
-		saved, err := s.hostManager.GetHost(hostname)
+		if existing, err := s.sessionManager.GetSessionByIDOrAlias(connectionID); err == nil {
+			return existing, nil
+		}
+		saved, err := s.hostManager.GetHost(connectionID)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +91,7 @@ func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error)
 		password = saved.Password
 		privateKey = saved.PrivateKeyPath
 		if privateKey == "" && stringArg(args, "passphrase") != "" {
-			return nil, fmt.Errorf("passphrase requires a saved SSH host with private_key_path")
+			return nil, fmt.Errorf("passphrase requires a saved SSH connection with private_key_path")
 		}
 	} else {
 		host = stringArg(args, "host")
@@ -97,6 +110,25 @@ func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error)
 		if privateKey == "" && stringArg(args, "passphrase") != "" {
 			return nil, fmt.Errorf("passphrase requires private_key for direct SSH")
 		}
+		if s.stateStore != nil {
+			if connectionID == "" {
+				return nil, fmt.Errorf("first direct SSH connection requires a model-chosen connection_id")
+			}
+			if err := sshmcp.ValidateConnectionID(connectionID); err != nil {
+				return nil, err
+			}
+			if s.hostManager.HostExists(connectionID) {
+				return nil, fmt.Errorf("connection_id %q is already registered; reopen it without direct SSH fields", connectionID)
+			}
+			description := stringArg(args, "description")
+			if description == "" {
+				return nil, fmt.Errorf("first direct SSH connection requires a description")
+			}
+			profileToSave = &sshmcp.HostConfig{
+				Host: host, Port: port, Username: username, Password: password,
+				PrivateKeyPath: privateKey, Description: description,
+			}
+		}
 	}
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("port must be between 1 and 65535")
@@ -113,7 +145,38 @@ func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error)
 			return nil, fmt.Errorf("password or private_key is required for an SSH connection")
 		}
 	}
-	return s.sessionManager.CreateSession(host, port, username, auth, stringArg(args, "alias"))
+	alias := stringArg(args, "alias")
+	if connectionID != "" {
+		alias = connectionID
+	}
+	session, err := s.sessionManager.CreateSession(host, port, username, auth, alias)
+	if err != nil {
+		return nil, err
+	}
+	if profileToSave != nil {
+		if err := s.hostManager.SaveHost(connectionID, *profileToSave); err != nil {
+			_ = s.sessionManager.RemoveSession(session.ID)
+			return nil, err
+		}
+	}
+	return session, nil
+}
+
+func (s *Server) connectionIDForSession(session *sshmcp.Session) string {
+	session.RLock()
+	defer session.RUnlock()
+	if session.Alias != "" {
+		return session.Alias
+	}
+	return session.ID
+}
+
+func (s *Server) connectionDescription(connectionID string) string {
+	host, err := s.hostManager.GetHost(connectionID)
+	if err != nil {
+		return ""
+	}
+	return host.Description
 }
 
 func hasAnyArg(args map[string]any, keys ...string) bool {
@@ -131,6 +194,26 @@ func (s *Server) sshCapabilities() []string {
 		capabilities = append(capabilities, "files")
 	}
 	return capabilities
+}
+
+func (s *Server) recordSessionHistory(session *sshmcp.Session, kind, input, output, status string, exitCode *int) {
+	if s.stateStore == nil || session == nil {
+		return
+	}
+	connectionID := s.connectionIDForSession(session)
+	if connectionID == session.ID {
+		return
+	}
+	description := s.connectionDescription(connectionID)
+	if description == "" {
+		return
+	}
+	if err := s.stateStore.RecordHistory(state.HistoryEntry{
+		ConnectionID: connectionID, DescriptionSnapshot: description, Kind: kind,
+		Input: input, Output: output, State: status, ExitCode: exitCode,
+	}); err != nil && s.logger != nil {
+		s.logger.Warn().Err(err).Str("connection_id", connectionID).Msg("Record persistent execution history")
+	}
 }
 
 func (s *Server) handleConnectionClose(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
@@ -152,7 +235,7 @@ func (s *Server) handleConnectionClose(_ context.Context, _ *mcp.CallToolRequest
 		if err := s.sessionManager.RemoveSession(session.ID); err != nil {
 			return terminalError(err)
 		}
-		connectionID = session.ID
+		connectionID = s.connectionIDForSession(session)
 	}
 	return terminalJSON(map[string]any{"connection_id": connectionID, "closed": true})
 }
@@ -160,12 +243,12 @@ func (s *Server) handleConnectionClose(_ context.Context, _ *mcp.CallToolRequest
 func (s *Server) handleConnectionList(_ context.Context, _ *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
 	connections := make([]map[string]any, 0)
 	for _, session := range s.sessionManager.ListSessions() {
+		connectionID := s.connectionIDForSession(session)
 		connections = append(connections, map[string]any{
-			"connection_id": session.ID,
+			"connection_id": connectionID,
 			"transport":     "ssh",
-			"host":          session.Host,
-			"username":      session.Username,
-			"alias":         session.Alias,
+			"description":   s.connectionDescription(connectionID),
+			"active":        true,
 			"capabilities":  s.sshCapabilities(),
 		})
 	}
@@ -187,18 +270,55 @@ func (s *Server) handleConnectionList(_ context.Context, _ *mcp.CallToolRequest,
 		return connections[i]["connection_id"].(string) < connections[j]["connection_id"].(string)
 	})
 	savedHosts := make([]map[string]any, 0)
-	for name, host := range s.hostManager.ListHosts() {
+	hosts, err := s.hostManager.ListPersistentHosts()
+	if err != nil {
+		return terminalError(fmt.Errorf("list persistent connections: %w", err))
+	}
+	for name, host := range hosts {
 		savedHosts = append(savedHosts, map[string]any{
-			"name": name, "host": host.Host, "port": host.Port, "username": host.Username, "description": host.Description,
+			"connection_id": name, "description": host.Description, "transport": "ssh",
 		})
 	}
-	sort.Slice(savedHosts, func(i, j int) bool { return savedHosts[i]["name"].(string) < savedHosts[j]["name"].(string) })
+	sort.Slice(savedHosts, func(i, j int) bool {
+		return savedHosts[i]["connection_id"].(string) < savedHosts[j]["connection_id"].(string)
+	})
 	ports, err := serialmcp.ListPorts()
 	payload := map[string]any{"connections": connections, "saved_ssh_hosts": savedHosts, "serial_ports": ports}
 	if err != nil {
 		payload["serial_error"] = err.Error()
 	}
 	return terminalJSON(payload)
+}
+
+func (s *Server) handleConnectionHistory(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+	if s.stateStore == nil {
+		return terminalError(fmt.Errorf("persistent history is unavailable because the state store is not configured"))
+	}
+	connectionID := stringArg(args, "connection_id")
+	host, err := s.hostManager.GetHost(connectionID)
+	if err != nil {
+		return terminalError(err)
+	}
+	entries, err := s.stateStore.ListHistory(connectionID, intArg(args, "limit", 50))
+	if err != nil {
+		return terminalError(err)
+	}
+	history := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		item := map[string]any{
+			"id": entry.ID, "kind": entry.Kind, "input": entry.Input, "output": entry.Output,
+			"state": entry.State, "created_at": entry.CreatedAt.Format(time.RFC3339),
+		}
+		if entry.ExitCode != nil {
+			item["exit_code"] = *entry.ExitCode
+		}
+		history = append(history, item)
+	}
+	return terminalJSON(map[string]any{
+		"connection_id": connectionID,
+		"description":   host.Description,
+		"history":       history,
+	})
 }
 
 func (s *Server) handleTerminalOpen(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
@@ -327,6 +447,11 @@ func (s *Server) handleTerminalInteract(ctx context.Context, _ *mcp.CallToolRequ
 	result, err := entry.Session.Interact(callCtx, request)
 	if err != nil {
 		return terminalError(err)
+	}
+	if len(input) > 0 && entry.Transport == "ssh" {
+		if session, err := s.sessionManager.GetSession(entry.ConnectionID); err == nil {
+			s.recordSessionHistory(session, "terminal", string(input), result.Data, result.State, nil)
+		}
 	}
 	return terminalJSON(result)
 }

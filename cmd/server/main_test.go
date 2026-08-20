@@ -24,19 +24,19 @@ func TestStdioInitializeHasNoLogLines(t *testing.T) {
 	}{
 		{
 			name:  "core",
-			tools: []string{"connection_open", "connection_close", "connection_list", "ssh_exec", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
+			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_exec", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
 		},
 		{
 			name:  "files",
-			tools: []string{"connection_open", "connection_close", "connection_list", "ssh_exec", "sftp_transfer", "sftp_manage", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
+			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_exec", "sftp_transfer", "sftp_manage", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
 		},
 		{
 			name:  "basic",
-			tools: []string{"connection_open", "connection_close", "connection_list", "ssh_exec", "sftp_transfer", "sftp_manage", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
+			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_exec", "sftp_transfer", "sftp_manage", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
 		},
 		{
 			name:  "advanced",
-			tools: []string{"connection_open", "connection_close", "connection_list", "ssh_connect", "ssh_disconnect", "ssh_list_sessions", "ssh_exec", "ssh_exec_batch", "ssh_shell", "sftp_upload", "sftp_download", "sftp_list_dir", "sftp_mkdir", "sftp_delete", "ssh_write_input", "ssh_read_output", "ssh_resize_pty", "ssh_terminal_snapshot", "ssh_shell_status", "ssh_history", "ssh_list_hosts", "ssh_save_host", "ssh_remove_host", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
+			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_connect", "ssh_disconnect", "ssh_list_sessions", "ssh_exec", "ssh_exec_batch", "ssh_shell", "sftp_upload", "sftp_download", "sftp_list_dir", "sftp_mkdir", "sftp_delete", "ssh_write_input", "ssh_read_output", "ssh_resize_pty", "ssh_terminal_snapshot", "ssh_shell_status", "ssh_history", "ssh_list_hosts", "ssh_save_host", "ssh_remove_host", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
 		},
 	}
 
@@ -50,6 +50,7 @@ func TestStdioInitializeHasNoLogLines(t *testing.T) {
 func assertStdioProfile(t *testing.T, profile string, expectedTools []string) {
 	t.Helper()
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	statePath := filepath.ToSlash(filepath.Join(filepath.Dir(configPath), "state.db"))
 	config := fmt.Sprintf(`server:
   name: ssh-mcp-server
   version: test
@@ -65,11 +66,13 @@ sftp:
   transfer_timeout: 5m
 tools:
   profile: %s
+state:
+  database_path: %q
 logging:
   level: info
   format: console
   output: stdout
-`, profile)
+`, profile, statePath)
 	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

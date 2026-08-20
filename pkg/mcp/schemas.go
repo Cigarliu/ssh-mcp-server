@@ -14,15 +14,17 @@ func getCommonJSONSchema(properties map[string]any, required []string) map[strin
 func connectionOpenSchema() map[string]any {
 	return getCommonJSONSchema(map[string]any{
 		"transport":     map[string]any{"type": "string", "enum": []string{"ssh", "serial"}, "description": "Choose exactly one transport."},
-		"hostname":      map[string]any{"type": "string", "description": "Saved SSH host name from connection_list. With hostname, omit host, port, username, password, private_key, and every serial field."},
-		"host":          map[string]any{"type": "string", "description": "Direct SSH address. Requires username and exactly one of password or private_key. Do not combine with hostname or serial fields."},
-		"port":          map[string]any{"type": "integer", "description": "Direct SSH port; omit for 22. Do not combine with hostname or serial fields."},
-		"username":      map[string]any{"type": "string", "description": "Username for direct SSH. Do not combine with hostname or serial fields."},
-		"password":      map[string]any{"type": "string", "description": "Password for direct SSH. Do not send with private_key, hostname, or serial fields."},
-		"private_key":   map[string]any{"type": "string", "description": "Private key path for direct SSH. Do not send with password, hostname, or serial fields."},
+		"connection_id": map[string]any{"type": "string", "description": "Stable persistent SSH connection ID. To reopen a saved connection, send only this ID with transport=ssh. For a first direct SSH connection, choose this readable ID yourself and include description."},
+		"description":   map[string]any{"type": "string", "description": "Required when first registering a direct SSH connection. A concise user-facing explanation used in future connection lists."},
+		"hostname":      map[string]any{"type": "string", "description": "Deprecated compatibility name for a saved SSH connection ID. Do not combine with connection_id or direct SSH fields."},
+		"host":          map[string]any{"type": "string", "description": "Direct SSH address. First-time direct connections require connection_id, description, username, and exactly one of password or private_key."},
+		"port":          map[string]any{"type": "integer", "description": "Direct SSH port; omit for 22. Do not combine with a saved connection ID or serial fields."},
+		"username":      map[string]any{"type": "string", "description": "Username for a first direct SSH connection. Do not combine with a saved connection ID or serial fields."},
+		"password":      map[string]any{"type": "string", "description": "Password for a first direct SSH connection. Do not send with private_key, a saved connection ID, or serial fields."},
+		"private_key":   map[string]any{"type": "string", "description": "Private key path for a first direct SSH connection. Do not send with password, a saved connection ID, or serial fields."},
 		"passphrase":    map[string]any{"type": "string", "description": "Passphrase for direct private_key or for a saved host with private_key_path. Do not send with password or serial fields."},
 		"sudo_password": map[string]any{"type": "string", "description": "Optional password supplied to sudo commands executed through SSH. Do not send for serial."},
-		"alias":         map[string]any{"type": "string", "description": "Optional SSH connection alias. Do not send for serial."},
+		"alias":         map[string]any{"type": "string", "description": "Deprecated. Persistent connection_id is used as the SSH session alias."},
 		"device":        map[string]any{"type": "string", "description": "Serial device path, for example /dev/ttyUSB0. Required when transport is serial; do not send with SSH fields."},
 		"baud_rate":     map[string]any{"type": "integer", "description": "Serial baud rate; omit for 115200. Do not send for SSH.", "minimum": 1, "maximum": 4000000},
 		"data_bits":     map[string]any{"type": "integer", "description": "Serial data bits; omit for 8. Do not send for SSH.", "enum": []int{5, 6, 7, 8}},
@@ -55,6 +57,21 @@ func connectionListOutputSchema() map[string]any {
 		"saved_ssh_hosts": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
 		"serial_ports":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	}, []string{"connections", "saved_ssh_hosts", "serial_ports"})
+}
+
+func connectionHistorySchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"connection_id": map[string]any{"type": "string", "description": "Persistent SSH connection ID from connection_list."},
+		"limit":         map[string]any{"type": "integer", "default": 50, "minimum": 1, "maximum": 200},
+	}, []string{"connection_id"})
+}
+
+func connectionHistoryOutputSchema() map[string]any {
+	return getCommonJSONSchema(map[string]any{
+		"connection_id": map[string]any{"type": "string"},
+		"description":   map[string]any{"type": "string"},
+		"history":       map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+	}, []string{"connection_id", "description", "history"})
 }
 
 func terminalOpenSchema() map[string]any {

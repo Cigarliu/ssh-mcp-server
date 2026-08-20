@@ -144,8 +144,7 @@ func (s *Server) handleSSHConnect(ctx context.Context, req *mcp.CallToolRequest,
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Successfully connected to %s@%s:%d\nSession ID: %s\nAlias: %s",
-			username, host, port, session.ID, session.Alias)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Successfully connected\nConnection ID: %s", s.connectionIDForSession(session))}},
 	}, nil, nil
 }
 
@@ -173,16 +172,21 @@ func (s *Server) handleSSHListSessions(ctx context.Context, req *mcp.CallToolReq
 	output := fmt.Sprintf("Total sessions: %d\n\n", len(sessions))
 	for _, session := range sessions {
 		session.RLock()
-		output += fmt.Sprintf("- Session ID: %s\n", session.ID)
+		connectionID := session.ID
 		if session.Alias != "" {
-			output += fmt.Sprintf("  Alias: %s\n", session.Alias)
+			connectionID = session.Alias
 		}
-		output += fmt.Sprintf("  Host: %s:%d\n", session.Host, session.Port)
-		output += fmt.Sprintf("  Username: %s\n", session.Username)
-		output += fmt.Sprintf("  State: %s\n", session.State)
-		output += fmt.Sprintf("  Created: %s\n", session.CreatedAt.Format(time.RFC3339))
-		output += fmt.Sprintf("  Last Used: %s\n\n", session.LastUsedAt.Format(time.RFC3339))
+		status := session.State
+		createdAt := session.CreatedAt
+		lastUsedAt := session.LastUsedAt
 		session.RUnlock()
+		output += fmt.Sprintf("- Connection ID: %s\n", connectionID)
+		if description := s.connectionDescription(connectionID); description != "" {
+			output += fmt.Sprintf("  Description: %s\n", description)
+		}
+		output += fmt.Sprintf("  State: %s\n", status)
+		output += fmt.Sprintf("  Created: %s\n", createdAt.Format(time.RFC3339))
+		output += fmt.Sprintf("  Last Used: %s\n\n", lastUsedAt.Format(time.RFC3339))
 	}
 
 	return &mcp.CallToolResult{
@@ -200,6 +204,7 @@ func (s *Server) handleSSHExec(ctx context.Context, req *mcp.CallToolRequest, ar
 
 	session, err := s.sessionManager.GetSessionByIDOrAlias(connectionID)
 	if err != nil {
+		s.recordSessionHistory(session, "exec", command, err.Error(), "error", nil)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Connection not found: %v\nHint: Use connection_list() to see active connections", err)}},
 			IsError: true,
@@ -224,6 +229,12 @@ func (s *Server) handleSSHExec(ctx context.Context, req *mcp.CallToolRequest, ar
 			IsError: true,
 		}, nil, nil
 	}
+	exitCode := result.ExitCode
+	executionState := "success"
+	if result.ExitCode != 0 {
+		executionState = "failed"
+	}
+	s.recordSessionHistory(session, "exec", command, result.Stdout+result.Stderr, executionState, &exitCode)
 
 	maxOutputChars := boundedOutputLimit(maxOutputCharsVal)
 	stdout, stderr, truncated := truncateCommandOutput(result.Stdout, result.Stderr, maxOutputChars)
@@ -1022,18 +1033,16 @@ func (s *Server) handleSSHListHosts(ctx context.Context, req *mcp.CallToolReques
 		}, nil, nil
 	}
 
-	output := fmt.Sprintf("Predefined hosts (%d):\n\n", len(hosts))
+	output := fmt.Sprintf("Persistent connections (%d):\n\n", len(hosts))
 	for name, host := range hosts {
-		output += fmt.Sprintf("- %s:\n", name)
-		output += fmt.Sprintf("  Host: %s:%d\n", host.Host, host.Port)
-		output += fmt.Sprintf("  Username: %s\n", host.Username)
+		output += fmt.Sprintf("- Connection ID: %s\n", name)
 		if host.Description != "" {
 			output += fmt.Sprintf("  Description: %s\n", host.Description)
 		}
 		if host.Password != "" {
 			output += "  Auth: password\n"
 		} else if host.PrivateKeyPath != "" {
-			output += fmt.Sprintf("  Auth: private_key (%s)\n", host.PrivateKeyPath)
+			output += "  Auth: private_key\n"
 		}
 		output += "\n"
 	}

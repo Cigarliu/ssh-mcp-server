@@ -42,7 +42,7 @@ func CreateSSHClient(host string, port int, username string, authConfig *AuthCon
 		},
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := sshAddress(host, port)
 
 	// 建立TCP连接（手动建立以便设置 keepalive）
 	conn, err := net.DialTimeout("tcp", addr, timeout)
@@ -66,6 +66,10 @@ func CreateSSHClient(host string, port int, username string, authConfig *AuthCon
 	client := ssh.NewClient(sshConn, chans, reqs)
 
 	return client, nil
+}
+
+func sshAddress(host string, port int) string {
+	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
 }
 
 // AuthMethod creates SSH authentication methods based on the auth config

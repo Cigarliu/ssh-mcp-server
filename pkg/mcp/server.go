@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"fmt"
+
+	"github.com/cigar/sshmcp/internal/state"
 	"strings"
 
 	"github.com/cigar/sshmcp/pkg/serialmcp"
@@ -30,15 +32,21 @@ type Server struct {
 	serialManager  *serialmcp.Manager
 	terminals      *terminal.Registry
 	logger         *zerolog.Logger
+	stateStore     *state.Store
 }
 
 // NewServer creates a new MCP server
 func NewServer(sessionManager *sshmcp.SessionManager, hostManager *sshmcp.HostManager, logger *zerolog.Logger) (*Server, error) {
-	return NewServerWithProfile(sessionManager, hostManager, logger, string(ToolProfileFiles))
+	return NewServerWithProfileAndStore(sessionManager, hostManager, nil, logger, string(ToolProfileFiles))
 }
 
 // NewServerWithProfile creates an MCP server with the requested tool profile.
 func NewServerWithProfile(sessionManager *sshmcp.SessionManager, hostManager *sshmcp.HostManager, logger *zerolog.Logger, profileName string) (*Server, error) {
+	return NewServerWithProfileAndStore(sessionManager, hostManager, nil, logger, profileName)
+}
+
+// NewServerWithProfileAndStore creates a server backed by a shared state store.
+func NewServerWithProfileAndStore(sessionManager *sshmcp.SessionManager, hostManager *sshmcp.HostManager, stateStore *state.Store, logger *zerolog.Logger, profileName string) (*Server, error) {
 	profile, err := parseToolProfile(profileName)
 	if err != nil {
 		return nil, err
@@ -59,6 +67,7 @@ func NewServerWithProfile(sessionManager *sshmcp.SessionManager, hostManager *ss
 		serialManager:  serialmcp.NewManager(),
 		terminals:      terminal.NewRegistry(),
 		logger:         logger,
+		stateStore:     stateStore,
 	}
 
 	s.registerTools(profile)
@@ -82,7 +91,7 @@ func parseToolProfile(profileName string) (ToolProfile, error) {
 }
 
 func toolInstructions(profile ToolProfile) string {
-	instructions := "Call connection_list before selecting a saved SSH host or serial port. Keep the returned connection_id and use it for SSH commands and files. Use ssh_exec for one-shot SSH commands. For an interactive shell or device console, call terminal_open then terminal_interact: default to wait=quiet, use wait=until only for a known literal, continue with next_offset after limit_reached, and do not blindly retry timeout. Call terminal_view only when terminal_open returns profile=tui and screen=true."
+	instructions := "Call connection_list before selecting a persistent SSH connection or serial port. For a first direct SSH connection, choose a readable connection_id and provide a description; after it succeeds, use only that ID in later calls. Keep the returned connection_id for SSH commands and files. Use connection_history to review durable command and terminal records. Use ssh_exec for one-shot SSH commands. For an interactive shell or device console, call terminal_open then terminal_interact: default to wait=quiet, use wait=until only for a known literal, continue with next_offset after limit_reached, and do not blindly retry timeout. Call terminal_view only when terminal_open returns profile=tui and screen=true."
 	switch profile {
 	case ToolProfileCore:
 		return instructions + " This server uses the core profile; file transfer and advanced session controls are unavailable."
@@ -96,9 +105,10 @@ func toolInstructions(profile ToolProfile) string {
 // registerTools registers all SSH MCP tools
 func (s *Server) registerTools(profile ToolProfile) {
 	// Core tools are deliberately transport-neutral after connection bootstrap.
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_open", Description: "Open an SSH or serial connection. For SSH choose exactly one target: a saved hostname from connection_list, or host plus username and authentication. Return a connection_id and only capabilities exposed by this profile.", InputSchema: connectionOpenSchema(), OutputSchema: connectionOpenOutputSchema()}, s.handleConnectionOpen)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_open", Description: "Open an SSH or serial connection. For an existing SSH profile, send its connection_id only. For a first direct SSH connection, choose connection_id, add description, host, username, and authentication; the server persists it after the connection succeeds. Return only the stable connection_id and capabilities.", InputSchema: connectionOpenSchema(), OutputSchema: connectionOpenOutputSchema()}, s.handleConnectionOpen)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_close", Description: "Close an SSH connection_id or alias, or a serial connection_id, and any attached terminal.", InputSchema: connectionCloseSchema(), OutputSchema: connectionCloseOutputSchema()}, s.handleConnectionClose)
-	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_list", Description: "List active connections, saved SSH host names, and locally discoverable serial ports.", InputSchema: connectionListSchema(), OutputSchema: connectionListOutputSchema()}, s.handleConnectionList)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_list", Description: "List active connections, persistent SSH connection IDs/descriptions, and locally discoverable serial ports. Saved SSH targets and usernames are never returned.", InputSchema: connectionListSchema(), OutputSchema: connectionListOutputSchema()}, s.handleConnectionList)
+	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "connection_history", Description: "Read durable command and terminal interaction history for a persistent SSH connection_id. Results expose the stable ID and description, not the stored target or credentials.", InputSchema: connectionHistorySchema(), OutputSchema: connectionHistoryOutputSchema()}, s.handleConnectionHistory)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_open", Description: "Create a terminal on an open connection. SSH supports shell and tui profiles; serial supports shell only. Close a terminal before reopening the same connection with another profile.", InputSchema: terminalOpenSchema(), OutputSchema: terminalOpenOutputSchema()}, s.handleTerminalOpen)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_interact", Description: "Atomically send terminal input and read from the captured stream offset. Use wait=quiet for normal commands, wait=until with a known literal, or wait=none only when no response is needed yet. Use returned state, stop_reason, and next_offset to decide the next call.", InputSchema: terminalInteractSchema(), OutputSchema: terminalInteractOutputSchema()}, s.handleTerminalInteract)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{Name: "terminal_view", Description: "Read the current projected screen for a terminal opened with profile tui. It is not for normal command output.", InputSchema: terminalViewSchema(), OutputSchema: terminalViewOutputSchema()}, s.handleTerminalView)
