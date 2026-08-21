@@ -58,7 +58,7 @@ jobs:
           mkdir -p "dist/${name}"
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/cigar/sshmcp/internal/buildinfo.Version=${VERSION}" -o "dist/${name}/${binary}" ./cmd/server
           cp config.example.yaml "dist/${name}/"
-          cp README.md README.en.md LICENSE "dist/${name}/"
+          cp README.md README.zh-CN.md LICENSE "dist/${name}/"
           if [ "$GOOS" = "windows" ]; then
             (cd dist && zip -rq "${name}.zip" "${name}")
           else

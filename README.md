@@ -1,22 +1,22 @@
 # SSH MCP Server
 
-[English](README.en.md)
+**English** | [简体中文](README.zh-CN.md)
 
-面向 AI 客户端的 stdio MCP Server，用于安全地执行 SSH 命令、传输文件、操作交互式终端和串口控制台。连接档案与执行历史可由同一台机器上的多个 MCP 实例共享；模型后续只按稳定的连接 ID 操作，不会再次取得已保存的目标地址、用户名或认证信息。
+A stdio MCP server for AI clients that need SSH command execution, file transfer, interactive terminals, and serial consoles. Connection profiles and execution history are shared by MCP instances on the same machine. After a profile is registered, models operate through a stable connection ID instead of receiving saved targets, usernames, or authentication details again.
 
-## 主要能力
+## Highlights
 
-- SSH 命令执行、SFTP 上传下载和目录管理。
-- SSH Shell/TUI 与串口终端，支持受控读写、输出偏移和明确完成状态。
-- 基于 SQLite 的连接档案与命令历史，跨 MCP 实例和重启保留。
-- 最小化工具面：默认 `files` profile 暴露 11 个日常工具。
-- 严格 stdio 协议边界：MCP 数据只写入 stdout，日志只写入 stderr。
+- SSH command execution, SFTP transfer, and directory management.
+- SSH shell/TUI and serial terminals with controlled read/write turns, stream offsets, and explicit completion states.
+- SQLite-backed connection profiles and execution history that survive restarts and are shared across local MCP instances.
+- A fixed, model-oriented surface of eleven everyday tools.
+- Strict stdio boundaries: MCP data uses stdout only; logs use stderr only.
 
-## 安装
+## Install
 
-**推荐：使用 GitHub Releases 的预编译包。** 下载与你的平台匹配的归档，解压后将 `sshmcp`（Windows 为 `sshmcp.exe`）放在稳定目录。每个归档包含示例配置、双语 README 和许可证。
+**Recommended: use a prebuilt archive from GitHub Releases.** Download the archive for your platform, extract it, and place `sshmcp` (`sshmcp.exe` on Windows) in a stable directory. Every archive contains the example configuration, both READMEs, and the license.
 
-从源码构建需要 Go `1.24.4` 或更高版本：
+Building from source requires Go `1.24.4` or newer:
 
 ```bash
 git clone https://github.com/Cigarliu/ssh-mcp-server.git
@@ -24,16 +24,16 @@ cd ssh-mcp-server
 go build -o sshmcp ./cmd/server
 ```
 
-首次启动时，如果未提供配置文件，服务会自动生成默认配置：
+On first start, the server writes a default configuration when none exists:
 
-- Windows：`%USERPROFILE%\.sshmcp\config.yaml`
-- macOS/Linux：`~/.sshmcp/config.yaml`
+- Windows: `%USERPROFILE%\.sshmcp\config.yaml`
+- macOS/Linux: `~/.sshmcp/config.yaml`
 
-也可以使用 `-config <path>` 指定配置位置。
+Pass `-config <path>` to use a different file.
 
-## MCP 客户端配置
+## MCP Client Configuration
 
-将程序作为 stdio MCP Server 注册。以 Windows 为例：
+Register the binary as a stdio MCP server. For example, on Windows:
 
 ```json
 {
@@ -46,50 +46,52 @@ go build -o sshmcp ./cmd/server
 }
 ```
 
-在 macOS 或 Linux 上，将 `command` 和 `-config` 参数替换为对应的绝对路径。不要让服务在启动时请求 sudo 密码；这会占用 stdin 并破坏 MCP 握手。
+On macOS or Linux, use the corresponding absolute paths. Do not make a stdio MCP server request a sudo password at startup: it consumes stdin and breaks the MCP handshake.
 
-## 连接与历史
+## Connections and History
 
-首次直连 SSH 时，模型应根据用途创建一个简短、稳定、可读的 `connection_id`，同时提供用户可识别的 `description`：
+For a first direct SSH connection, the model should create a short, stable, readable `connection_id` and a user-facing `description`:
 
 ```json
 {
   "transport": "ssh",
   "connection_id": "prod-web-hk",
-  "description": "香港生产 Web 服务，用于部署与日志排查",
+  "description": "Hong Kong production web server for deployments and log triage",
   "host": "203.0.113.10",
   "username": "deploy",
   "private_key": "~/.ssh/id_ed25519"
 }
 ```
 
-成功连接后，后续会话和其他 MCP 实例只需：
+After a successful connection, later conversations and MCP instances need only:
 
 ```json
 { "transport": "ssh", "connection_id": "prod-web-hk" }
 ```
 
-`connection_list` 仅返回连接 ID、描述、活动状态和本机串口；不会返回地址、用户名、密码或私钥路径。`connection_history` 可查询持久化的 `ssh_exec` 与 `terminal_interact` 记录。
+`connection_list` returns only IDs, descriptions, active state, and locally visible serial ports. It never returns saved addresses, usernames, passwords, or private-key paths. `connection_history` reads durable `ssh_exec` and `terminal_interact` records.
 
-普通命令使用：
+For ordinary commands:
 
 ```text
 connection_open -> ssh_exec -> connection_close
 ```
 
-交互式 Shell、REPL 或 TUI 使用：
+For interactive shells, REPLs, and TUIs:
 
 ```text
 connection_open -> terminal_open -> terminal_interact -> terminal_close -> connection_close
 ```
 
-`terminal_interact` 默认使用 `wait: "quiet"`。仅在已知完整提示符或分隔符时使用 `wait: "until"`；`until` 是字面量，不是正则表达式。返回 `limit_reached` 时使用 `next_offset` 继续读取。
+`terminal_interact` defaults to `wait: "quiet"`. Use `wait: "until"` only for a known complete prompt or delimiter; `until` is a literal, not a regular expression. When the result is `limit_reached`, continue with `next_offset`.
 
-服务始终暴露同一套 11 个面向模型的工具：连接打开、关闭、列表与历史；一次性 SSH 命令；任务型 SFTP 传输与管理；以及终端打开、交互、查看和关闭。不再提供工具 profile、公开的 `session_id`、alias 或旧 host 管理 API。
+## Tool Surface
 
-## 配置与安全
+The server always exposes the same eleven model-facing tools: connection open, close, list, and history; one-shot SSH execution; task-oriented SFTP transfer and management; and terminal open, interact, view, and close. There is no tool profile switch and no public `session_id`, alias, or legacy host-management API.
 
-最小配置：
+## Configuration and Security
+
+Minimal configuration:
 
 ```yaml
 logging:
@@ -98,20 +100,20 @@ logging:
   output: stderr
 ```
 
-默认状态数据库位于 `~/.sshmcp/state.db`；可通过以下配置覆盖：
+The default state database is `~/.sshmcp/state.db`. Override it when needed:
 
 ```yaml
 state:
   database_path: "/absolute/path/to/sshmcp-state.db"
 ```
 
-SQLite 使用 WAL 和写入等待机制，允许同一台机器上的多个 MCP 实例共享状态。数据库包含连接参数和执行历史，必须存放在受保护的本地目录；不要将其放入 OneDrive、Dropbox、网络共享或版本控制。`hosts` 仅用作旧配置的一次性导入源，SQLite 是后续状态的唯一来源。
+SQLite uses WAL and a write wait so several MCP instances on the same machine can share state. The database contains connection parameters and execution history. Keep it in a protected local directory; never place it in OneDrive, Dropbox, a network share, or source control. `hosts` is only a one-time compatibility import source; SQLite owns subsequent state.
 
-完整字段见 [config.example.yaml](config.example.yaml)。安全问题和凭据处理规则见 [SECURITY.md](SECURITY.md)。
+See [config.example.yaml](config.example.yaml) for all fields. See [SECURITY.md](SECURITY.md) for security reporting and credential handling.
 
-## 串口
+## Serial
 
-先调用 `connection_list` 获取本机可见串口，再通过 `connection_open` 建立连接：
+Use `connection_list` to find locally visible serial ports, then open one with `connection_open`:
 
 ```json
 {
@@ -124,9 +126,9 @@ SQLite 使用 WAL 和写入等待机制，允许同一台机器上的多个 MCP 
 }
 ```
 
-在 Linux 上，运行服务的账户必须具有设备访问权限，通常需要加入 `dialout` 组后重新登录。
+On Linux, the account running the server needs device access, commonly by joining the `dialout` group and signing in again.
 
-## 开发与维护
+## Development and Maintenance
 
 ```bash
 go test ./...
@@ -134,16 +136,16 @@ go vet ./...
 go test -race ./...
 ```
 
-本地 SSH 与串口集成测试均为显式 opt-in，不会在默认测试中访问设备或读取真实凭据。
+Local SSH and serial integration tests are explicitly opt-in. Default tests do not connect to devices or read real credentials.
 
-维护者推送版本 tag 后，GitHub Actions 会构建 Linux（amd64、arm64）、macOS（amd64、arm64）和 Windows（amd64）归档，并创建对应 Release：
+When a maintainer pushes a version tag, GitHub Actions builds Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64) archives and creates the matching GitHub Release:
 
 ```bash
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-发布构建会将 tag 注入 MCP 的服务版本。GitHub Release 页面是各版本的变更说明与下载入口。
+Release builds inject the tag into the MCP server version. The GitHub Release page is the download and release-notes entry point for each version.
 
 ## License
 
