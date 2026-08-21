@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,36 +19,10 @@ func TestStdioInitializeHasNoLogLines(t *testing.T) {
 		return
 	}
 
-	profiles := []struct {
-		name  string
-		tools []string
-	}{
-		{
-			name:  "core",
-			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_exec", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
-		},
-		{
-			name:  "files",
-			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_exec", "sftp_transfer", "sftp_manage", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
-		},
-		{
-			name:  "basic",
-			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_exec", "sftp_transfer", "sftp_manage", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
-		},
-		{
-			name:  "advanced",
-			tools: []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_connect", "ssh_disconnect", "ssh_list_sessions", "ssh_exec", "ssh_exec_batch", "ssh_shell", "sftp_upload", "sftp_download", "sftp_list_dir", "sftp_mkdir", "sftp_delete", "ssh_write_input", "ssh_read_output", "ssh_resize_pty", "ssh_terminal_snapshot", "ssh_shell_status", "ssh_history", "ssh_list_hosts", "ssh_save_host", "ssh_remove_host", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"},
-		},
-	}
-
-	for _, profile := range profiles {
-		t.Run(profile.name, func(t *testing.T) {
-			assertStdioProfile(t, profile.name, profile.tools)
-		})
-	}
+	assertStdioTools(t, []string{"connection_open", "connection_close", "connection_list", "connection_history", "ssh_exec", "sftp_transfer", "sftp_manage", "terminal_open", "terminal_interact", "terminal_view", "terminal_close"})
 }
 
-func assertStdioProfile(t *testing.T, profile string, expectedTools []string) {
+func assertStdioTools(t *testing.T, expectedTools []string) {
 	t.Helper()
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	statePath := filepath.ToSlash(filepath.Join(filepath.Dir(configPath), "state.db"))
@@ -61,15 +36,13 @@ sftp:
   max_file_size: 1073741824
   chunk_size: 4194304
   transfer_timeout: 5m
-tools:
-  profile: %s
 state:
   database_path: %q
 logging:
   level: info
   format: console
   output: stdout
-`, profile, statePath)
+`, statePath)
 	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -128,6 +101,8 @@ logging:
 	var toolsResponse struct {
 		Tools []struct {
 			Name         string          `json:"name"`
+			Description  string          `json:"description"`
+			InputSchema  json.RawMessage `json:"inputSchema"`
 			OutputSchema json.RawMessage `json:"outputSchema"`
 		} `json:"tools"`
 	}
@@ -135,16 +110,30 @@ logging:
 		t.Fatalf("decode tools/list response: %v", err)
 	}
 
-	tools := make(map[string]json.RawMessage, len(toolsResponse.Tools))
+	type toolMetadata struct {
+		description  string
+		inputSchema  json.RawMessage
+		outputSchema json.RawMessage
+	}
+	tools := make(map[string]toolMetadata, len(toolsResponse.Tools))
 	for _, tool := range toolsResponse.Tools {
-		tools[tool.Name] = tool.OutputSchema
+		if tool.Description == "" {
+			t.Errorf("%s has an empty model-facing description", tool.Name)
+		}
+		if len(tool.InputSchema) == 0 {
+			t.Errorf("%s has no input schema", tool.Name)
+		}
+		if strings.Contains(string(tool.InputSchema), `"session_id"`) {
+			t.Errorf("%s input schema unexpectedly exposes session_id: %s", tool.Name, tool.InputSchema)
+		}
+		tools[tool.Name] = toolMetadata{description: tool.Description, inputSchema: tool.InputSchema, outputSchema: tool.OutputSchema}
 	}
 	if len(tools) != len(expectedTools) {
-		t.Fatalf("%s profile returned %d tools, want %d", profile, len(tools), len(expectedTools))
+		t.Fatalf("server returned %d tools, want %d", len(tools), len(expectedTools))
 	}
 	for _, name := range expectedTools {
 		if _, found := tools[name]; !found {
-			t.Errorf("%s profile is missing %s", profile, name)
+			t.Errorf("server is missing %s", name)
 		}
 	}
 	expected := make(map[string]struct{}, len(expectedTools))
@@ -153,14 +142,24 @@ logging:
 	}
 	for name := range tools {
 		if _, found := expected[name]; !found {
-			t.Errorf("%s profile unexpectedly exposes %s", profile, name)
+			t.Errorf("server unexpectedly exposes %s", name)
 		}
 	}
-	if len(tools["ssh_exec"]) == 0 {
+	if len(tools["ssh_exec"].outputSchema) == 0 {
 		t.Error("ssh_exec must expose an output schema")
 	}
-	if len(tools["terminal_interact"]) == 0 {
+	if len(tools["terminal_interact"].outputSchema) == 0 {
 		t.Error("terminal_interact must expose an output schema")
+	}
+	for name, phrase := range map[string]string{
+		"connection_open":   "persisted only after success",
+		"terminal_interact": "next_offset",
+		"sftp_transfer":     "overwrite=true",
+		"sftp_manage":       "irreversible",
+	} {
+		if !strings.Contains(tools[name].description, phrase) {
+			t.Errorf("%s description must include %q, got %q", name, phrase, tools[name].description)
+		}
 	}
 
 	if _, err := fmt.Fprintln(stdin, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"connection_list","arguments":{}}}`); err != nil {

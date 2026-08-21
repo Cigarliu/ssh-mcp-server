@@ -17,10 +17,6 @@ sftp:
   chunk_size: 4194304
   transfer_timeout: 5m
 
-# files is the default: 11 tools including persistent history and compact SFTP transfer/management. core has 9 tools; advanced has all 28 migration and diagnostic tools.
-tools:
-  profile: files
-
 # Serial devices are opened on demand with connection_open(transport="serial").
 # On Linux, run the server as an account permitted to open the device (commonly
 # the dialout group), or launch the service with the necessary device access.
@@ -47,9 +43,6 @@ hosts:
     username: "deploy"
     private_key_path: "~/.ssh/id_rsa"
     description: "Staging environment"
-
-  # Host management tools are available only with tools.profile: advanced.
-  # Example: ssh_save_host(name="dev", host="dev.local", username="dev", password="secret")
 
 logging:
   level: info  # debug, info, warn, error

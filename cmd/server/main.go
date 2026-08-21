@@ -74,7 +74,7 @@ func main() {
 	}
 
 	// 创建 MCP 服务器
-	mcpServer, err := mcp.NewServerWithProfileAndStore(sessionManager, hostManager, stateStore, logger, cfg.Tools.Profile)
+	mcpServer, err := mcp.NewServerWithStore(sessionManager, hostManager, stateStore, logger)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create MCP server")
 	}

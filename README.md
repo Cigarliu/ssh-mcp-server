@@ -85,24 +85,13 @@ connection_open -> terminal_open -> terminal_interact -> terminal_close -> conne
 
 `terminal_interact` 默认使用 `wait: "quiet"`。仅在已知完整提示符或分隔符时使用 `wait: "until"`；`until` 是字面量，不是正则表达式。返回 `limit_reached` 时使用 `next_offset` 继续读取。
 
-## 工具 Profile
-
-| Profile | 工具数 | 使用场景 |
-| --- | ---: | --- |
-| `core` | 9 | SSH、串口、历史与终端操作 |
-| `files` | 11 | 默认；在 `core` 基础上提供聚合的 SFTP 操作 |
-| `advanced` | 28 | 旧版细粒度工具、兼容迁移与诊断 |
-
-新集成应使用 `files` 和基于 `connection_id` 的工具。`advanced` 中的 host 管理和旧 `hostname` 参数仅为兼容现有调用保留。
+服务始终暴露同一套 11 个面向模型的工具：连接打开、关闭、列表与历史；一次性 SSH 命令；任务型 SFTP 传输与管理；以及终端打开、交互、查看和关闭。不再提供工具 profile、公开的 `session_id`、alias 或旧 host 管理 API。
 
 ## 配置与安全
 
 最小配置：
 
 ```yaml
-tools:
-  profile: files
-
 logging:
   level: info
   format: console

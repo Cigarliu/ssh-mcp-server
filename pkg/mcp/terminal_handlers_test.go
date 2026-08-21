@@ -64,7 +64,7 @@ func TestConnectionListRedactsSavedHostCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new persistent host manager: %v", err)
 	}
-	server, err := NewServerWithProfileAndStore(manager, hosts, stateStore, logger, string(ToolProfileFiles))
+	server, err := NewServerWithStore(manager, hosts, stateStore, logger)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestConnectionHistoryReturnsPersistentRecordsWithoutTargetDetails(t *testin
 	if err != nil {
 		t.Fatalf("new persistent host manager: %v", err)
 	}
-	server, err := NewServerWithProfileAndStore(manager, hosts, stateStore, logger, string(ToolProfileFiles))
+	server, err := NewServerWithStore(manager, hosts, stateStore, logger)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestPersistentDirectSSHRequiresModelChosenIDAndDescription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new persistent host manager: %v", err)
 	}
-	server, err := NewServerWithProfileAndStore(manager, hosts, stateStore, logger, string(ToolProfileFiles))
+	server, err := NewServerWithStore(manager, hosts, stateStore, logger)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestSavedSSHHostRejectsDirectFields(t *testing.T) {
 	}
 
 	result, _, err := server.handleConnectionOpen(context.Background(), nil, map[string]any{
-		"transport": "ssh", "hostname": "local", "port": float64(22),
+		"transport": "ssh", "connection_id": "local", "port": float64(22),
 	})
 	if err != nil {
 		t.Fatalf("connection_open returned handler error: %v", err)
@@ -255,11 +255,6 @@ func TestModelFacingSchemasUseOneConnectionVocabulary(t *testing.T) {
 		}
 	}
 
-	legacyProperties := sshExecBatchSchema()["properties"].(map[string]any)
-	if _, found := legacyProperties["session_id"]; !found {
-		t.Fatalf("legacy schema is missing session_id: %#v", legacyProperties)
-	}
-
 	properties := terminalInteractSchema()["properties"].(map[string]any)
 	if _, found := properties["pattern"]; found {
 		t.Fatal("terminal_interact must not expose the redundant pattern field")
@@ -267,20 +262,29 @@ func TestModelFacingSchemasUseOneConnectionVocabulary(t *testing.T) {
 	if _, found := properties["until"]; !found {
 		t.Fatal("terminal_interact must expose until for literal matching")
 	}
+
+	connectionProperties := connectionOpenSchema()["properties"].(map[string]any)
+	for _, deprecated := range []string{"session_id", "hostname", "alias"} {
+		if _, found := connectionProperties[deprecated]; found {
+			t.Fatalf("connection_open must not expose deprecated %q: %#v", deprecated, connectionProperties)
+		}
+	}
+	connectionID := connectionProperties["connection_id"].(map[string]any)
+	if connectionID["pattern"] != "^[a-z][a-z0-9][a-z0-9_-]{1,62}$" {
+		t.Fatalf("connection_id pattern = %#v, want stable lowercase ID pattern", connectionID["pattern"])
+	}
+
+	listProperties := connectionListOutputSchema()["properties"].(map[string]any)
+	serialPorts := listProperties["serial_ports"].(map[string]any)
+	if serialPorts["type"] != "array" {
+		t.Fatalf("serial_ports schema type = %#v, want array", serialPorts["type"])
+	}
 }
 
-func TestSSHCapabilitiesFollowToolProfile(t *testing.T) {
+func TestSSHCapabilitiesIncludeUnifiedFileOperations(t *testing.T) {
 	server, manager := setupTestServer(t)
 	t.Cleanup(manager.Close)
 	if !strings.Contains(strings.Join(server.sshCapabilities(), ","), "files") {
-		t.Fatal("default files profile must advertise file capabilities")
-	}
-
-	coreServer, err := NewServerWithProfile(manager, server.hostManager, server.logger, "core")
-	if err != nil {
-		t.Fatalf("new core-profile server: %v", err)
-	}
-	if strings.Contains(strings.Join(coreServer.sshCapabilities(), ","), "files") {
-		t.Fatal("core profile must not advertise file capabilities")
+		t.Fatal("unified server must advertise file capabilities")
 	}
 }

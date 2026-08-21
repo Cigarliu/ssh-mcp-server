@@ -32,7 +32,7 @@ func (s *Server) handleConnectionOpen(_ context.Context, _ *mcp.CallToolRequest,
 			"capabilities":  s.sshCapabilities(),
 		})
 	case "serial":
-		if hasAnyArg(args, "connection_id", "description", "hostname", "host", "port", "username", "password", "private_key", "passphrase", "sudo_password", "alias") {
+		if hasAnyArg(args, "connection_id", "description", "host", "port", "username", "password", "private_key", "passphrase", "sudo_password") {
 			return terminalError(fmt.Errorf("serial connections cannot include SSH fields"))
 		}
 		device := stringArg(args, "device")
@@ -64,17 +64,7 @@ func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error)
 	var profileToSave *sshmcp.HostConfig
 	port := 22
 	connectionID := stringArg(args, "connection_id")
-	hostname := stringArg(args, "hostname")
-	if connectionID != "" && hostname != "" {
-		return nil, fmt.Errorf("connection_id cannot be combined with deprecated hostname")
-	}
-	if hostname != "" {
-		connectionID = hostname
-	}
 	if connectionID != "" && !hasAnyArg(args, "host", "port", "username", "password", "private_key") {
-		if stringArg(args, "alias") != "" {
-			return nil, fmt.Errorf("alias cannot be combined with persistent connection_id")
-		}
 		if existing, err := s.sessionManager.GetSessionByIDOrAlias(connectionID); err == nil {
 			return existing, nil
 		}
@@ -145,11 +135,7 @@ func (s *Server) openSSHConnection(args map[string]any) (*sshmcp.Session, error)
 			return nil, fmt.Errorf("password or private_key is required for an SSH connection")
 		}
 	}
-	alias := stringArg(args, "alias")
-	if connectionID != "" {
-		alias = connectionID
-	}
-	session, err := s.sessionManager.CreateSession(host, port, username, auth, alias)
+	session, err := s.sessionManager.CreateSession(host, port, username, auth, connectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -189,11 +175,7 @@ func hasAnyArg(args map[string]any, keys ...string) bool {
 }
 
 func (s *Server) sshCapabilities() []string {
-	capabilities := []string{"exec", "terminal", "tui"}
-	if s.profile == ToolProfileFiles || s.profile == ToolProfileAdvanced {
-		capabilities = append(capabilities, "files")
-	}
-	return capabilities
+	return []string{"exec", "terminal", "tui", "files"}
 }
 
 func (s *Server) recordSessionHistory(session *sshmcp.Session, kind, input, output, status string, exitCode *int) {
@@ -283,6 +265,9 @@ func (s *Server) handleConnectionList(_ context.Context, _ *mcp.CallToolRequest,
 		return savedHosts[i]["connection_id"].(string) < savedHosts[j]["connection_id"].(string)
 	})
 	ports, err := serialmcp.ListPorts()
+	if ports == nil {
+		ports = []string{}
+	}
 	payload := map[string]any{"connections": connections, "saved_ssh_hosts": savedHosts, "serial_ports": ports}
 	if err != nil {
 		payload["serial_error"] = err.Error()

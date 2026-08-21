@@ -85,24 +85,15 @@ connection_open -> terminal_open -> terminal_interact -> terminal_close -> conne
 
 `terminal_interact` defaults to `wait: "quiet"`. Use `wait: "until"` only for a known complete prompt or delimiter; `until` is a literal, not a regular expression. When the result is `limit_reached`, continue with `next_offset`.
 
-## Tool Profiles
+## Tool Surface
 
-| Profile | Tools | Use case |
-| --- | ---: | --- |
-| `core` | 9 | SSH, serial, history, and terminal operations |
-| `files` | 11 | Default; adds task-oriented SFTP operations to `core` |
-| `advanced` | 28 | Legacy granular tools, compatibility migrations, and diagnostics |
-
-New integrations should use the `files` profile and `connection_id`-based tools. Legacy host-management tools and the old `hostname` argument remain in `advanced` only for compatibility.
+The server always exposes the same eleven model-facing tools: connection open, close, list, and history; one-shot SSH execution; task-oriented SFTP transfer and management; and terminal open, interact, view, and close. There is no tool profile switch and no public `session_id`, alias, or legacy host-management API.
 
 ## Configuration and Security
 
 Minimal configuration:
 
 ```yaml
-tools:
-  profile: files
-
 logging:
   level: info
   format: console

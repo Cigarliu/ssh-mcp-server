@@ -31,10 +31,6 @@ sftp:
   chunk_size: 4194304        # 4MB in bytes
   transfer_timeout: 5m
 
-# files exposes eleven primary remote-operation tools, including compact SFTP tools. Use core for SSH and terminal-only access or advanced for compatibility and diagnostics.
-tools:
-  profile: files
-
 # Serial devices are opened on demand with connection_open(transport="serial").
 # On Linux, run the server as an account permitted to open the device (commonly
 # the dialout group), or launch the service with the necessary device access.
@@ -66,7 +62,6 @@ type Config struct {
 	SSH     SSHConfig     `mapstructure:"ssh"`
 	Session SessionConfig `mapstructure:"session"`
 	SFTP    SFTPConfig    `mapstructure:"sftp"`
-	Tools   ToolConfig    `mapstructure:"tools"`
 	Hosts   HostsConfig   `mapstructure:"hosts"`
 	State   StateConfig   `mapstructure:"state"`
 	Logging logger.Config `mapstructure:"logging"`
@@ -93,11 +88,6 @@ type SFTPConfig struct {
 	MaxFileSize     int64         `mapstructure:"max_file_size"`
 	ChunkSize       int64         `mapstructure:"chunk_size"`
 	TransferTimeout time.Duration `mapstructure:"transfer_timeout"`
-}
-
-// ToolConfig controls which MCP tools are exposed to the client.
-type ToolConfig struct {
-	Profile string `mapstructure:"profile"`
 }
 
 // StateConfig controls the local SQLite state shared by MCP instances.
@@ -252,7 +242,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("sftp.max_file_size", int64(1073741824))
 	v.SetDefault("sftp.chunk_size", int64(4194304))
 	v.SetDefault("sftp.transfer_timeout", "5m")
-	v.SetDefault("tools.profile", "files")
 	v.SetDefault("state.database_path", "")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.format", "console")

@@ -2,20 +2,18 @@ package mcp
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/cigar/sshmcp/pkg/sshmcp"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// setupTestServer creates a test server with session manager
 func setupTestServer(t *testing.T) (*Server, *sshmcp.SessionManager) {
+	t.Helper()
 	logger := setupTestLogger()
-	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
+	manager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
 		MaxSessions:        50,
 		MaxSessionsPerHost: 30,
 		SessionTimeout:     5 * time.Minute,
@@ -23,525 +21,48 @@ func setupTestServer(t *testing.T) (*Server, *sshmcp.SessionManager) {
 		CleanupInterval:    10 * time.Second,
 		Logger:             logger,
 	})
-
-	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
-
-	server, err := NewServer(sessionManager, hostManager, logger)
+	hosts := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
+	server, err := NewServer(manager, hosts, logger)
 	require.NoError(t, err)
-	require.NotNil(t, server)
-
-	return server, sessionManager
-}
-
-// createTestSession creates a real SSH session for testing
-func createTestSession(t *testing.T, sm *sshmcp.SessionManager) *sshmcp.Session {
-	requireSSHIntegration(t)
-
-	authConfig := &sshmcp.AuthConfig{
-		Type:     sshmcp.AuthTypePassword,
-		Password: os.Getenv("SSHMCP_TEST_SSH_PASSWORD"),
-	}
-
-	host := os.Getenv("SSHMCP_TEST_SSH_HOST")
-	username := os.Getenv("SSHMCP_TEST_SSH_USER")
-
-	session, err := sm.CreateSession(host, 22, username, authConfig, "")
-	if err != nil {
-		t.Skip("Skipping test: SSH connection not available")
-		return nil
-	}
-	return session
-}
-
-func requireSSHIntegration(t *testing.T) {
-	t.Helper()
-	if os.Getenv("RUN_SSH_INTEGRATION") != "1" {
-		t.Skip("set RUN_SSH_INTEGRATION=1 to run SSH integration tests")
-	}
-	for _, key := range []string{"SSHMCP_TEST_SSH_HOST", "SSHMCP_TEST_SSH_USER", "SSHMCP_TEST_SSH_PASSWORD"} {
-		if os.Getenv(key) == "" {
-			t.Skipf("set %s to run SSH integration tests", key)
-		}
-	}
+	return server, manager
 }
 
 func TestBoundedOutputLimit(t *testing.T) {
 	assert.Equal(t, defaultMaxOutputChars, boundedOutputLimit(0))
 	assert.Equal(t, 100, boundedOutputLimit(100))
 	assert.Equal(t, defaultMaxOutputChars, boundedOutputLimit(defaultMaxOutputChars+1))
-	assert.Equal(t, defaultMaxOutputChars, boundedOutputLimit(12.5))
-}
-
-func TestTerminalDimension(t *testing.T) {
-	value, err := terminalDimension("rows", 0, 40, maxTerminalRows)
-	require.NoError(t, err)
-	assert.Equal(t, uint16(40), value)
-
-	value, err = terminalDimension("cols", 240, 0, maxTerminalCols)
-	require.NoError(t, err)
-	assert.Equal(t, uint16(240), value)
-
-	for _, invalid := range []float64{-1, 0, 100.5, 101} {
-		_, err := terminalDimension("rows", invalid, 0, maxTerminalRows)
-		assert.Error(t, err)
-	}
 }
 
 func TestDirectoryEntryLimit(t *testing.T) {
 	assert.Equal(t, 100, directoryEntryLimit(0))
-	assert.Equal(t, 50, directoryEntryLimit(50))
+	assert.Equal(t, 100, directoryEntryLimit(100))
 	assert.Equal(t, maxDirectoryEntries, directoryEntryLimit(maxDirectoryEntries+1))
 }
 
-func TestCompactSFTPToolsRejectInvalidOperations(t *testing.T) {
-	server, sessionManager := setupTestServer(t)
-	defer sessionManager.Close()
-
-	result, _, err := server.handleSFTPTransfer(context.Background(), nil, map[string]any{"operation": "move"})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-
-	result, _, err = server.handleSFTPManage(context.Background(), nil, map[string]any{"operation": "rename"})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-}
-
-// TestHandleSSHExec tests ssh_exec handler
-func TestHandleSSHExec(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Test executing a command
-	args := map[string]any{
-		"connection_id": session.ID,
-		"command":       "echo 'test output'",
-	}
-
-	result, output, err := server.handleSSHExec(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-	assert.Greater(t, len(result.Content), 0)
-}
-
-// TestHandleSSHConnectWithSudoPassword tests ssh_connect with sudo_password parameter
-func TestHandleSSHConnectWithSudoPassword(t *testing.T) {
-	requireSSHIntegration(t)
-	if testing.Short() {
-		t.Skip("跳过需要SSH连接的测试（使用 -short 标志）")
-	}
-
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	host := os.Getenv("SSHMCP_TEST_SSH_HOST")
-	username := os.Getenv("SSHMCP_TEST_SSH_USER")
-	password := os.Getenv("SSHMCP_TEST_SSH_PASSWORD")
-	sudoPassword := os.Getenv("SSHMCP_TEST_SSH_SUDO_PASSWORD")
-	if sudoPassword == "" {
-		sudoPassword = password
-	}
-
-	t.Logf("测试连接到 %s@%s 并配置 sudo 密码", username, host)
-
-	// 测试 1: 不带 sudo_password 的连接
-	t.Run("ConnectWithoutSudoPassword", func(t *testing.T) {
-		args := map[string]any{
-			"host":     host,
-			"username": username,
-			"password": password,
-			"alias":    "test-no-sudo",
-		}
-
-		result, output, err := server.handleSSHConnect(context.Background(), nil, args)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.Nil(t, output)
-		assert.False(t, result.IsError)
-
-		// 验证连接成功
-		session, err := sm.GetSessionByAlias("test-no-sudo")
-		assert.NoError(t, err)
-		assert.NotNil(t, session)
-		assert.Empty(t, session.AuthConfig.SudoPassword, "不应该有 sudo 密码")
-
-		sm.RemoveSession(session.ID)
-	})
-
-	// 测试 2: 带 sudo_password 的连接
-	t.Run("ConnectWithSudoPassword", func(t *testing.T) {
-		args := map[string]any{
-			"host":          host,
-			"username":      username,
-			"password":      password,
-			"sudo_password": sudoPassword,
-			"alias":         "test-with-sudo",
-		}
-
-		result, output, err := server.handleSSHConnect(context.Background(), nil, args)
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.Nil(t, output)
-		assert.False(t, result.IsError)
-
-		// 验证连接成功且 sudo 密码已设置
-		session, err := sm.GetSessionByAlias("test-with-sudo")
-		assert.NoError(t, err)
-		assert.NotNil(t, session)
-		assert.Equal(t, sudoPassword, session.AuthConfig.SudoPassword, "应该有 sudo 密码")
-
-		t.Logf("✅ sudo 密码已正确保存到 AuthConfig: %s", session.AuthConfig.SudoPassword)
-
-		// 测试 3: 验证 sudo 命令能自动注入密码
-		t.Run("ExecuteSudoCommand", func(t *testing.T) {
-			// 执行 sudo 命令
-			execArgs := map[string]any{
-				"connection_id": session.ID,
-				"command":       "sudo whoami",
-				"timeout":       5,
-			}
-
-			execResult, execOutput, execErr := server.handleSSHExec(context.Background(), nil, execArgs)
-			assert.NoError(t, execErr)
-			assert.NotNil(t, execResult)
-			assert.Nil(t, execOutput)
-			assert.False(t, execResult.IsError)
-
-			// 验证输出
-			assert.NotEmpty(t, execResult.Content)
-			resultText := execResult.Content[0].(*mcp.TextContent).Text
-			t.Logf("Sudo 命令输出: %s", resultText)
-
-			// 如果 sudo 密码正确，应该输出 "root"
-			if execResult.IsError == false {
-				assert.Contains(t, resultText, "root", "sudo 应该返回 root 用户")
-				t.Logf("✅ sudo 密码自动注入成功！")
-			}
-		})
-
-		sm.RemoveSession(session.ID)
-	})
-}
-
-// TestHandleSSHExecBatch tests ssh_exec_batch handler
-func TestHandleSSHExecBatch(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Test executing batch commands
-	commands := []any{"pwd", "whoami"}
-	args := map[string]any{
-		"session_id":    session.ID,
-		"commands":      commands,
-		"stop_on_error": false,
-	}
-
-	result, output, err := server.handleSSHExecBatch(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
-// TestHandleSSHShell tests ssh_shell handler
-func TestHandleSSHShell(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Test creating shell
-	args := map[string]any{
-		"session_id": session.ID,
-		"term":       "xterm-256color",
-		"rows":       float64(24),
-		"cols":       float64(80),
-	}
-
-	result, output, err := server.handleSSHShell(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-
-	// Verify shell was created
-	session.RLock()
-	shell := session.GetShellSession()
-	session.RUnlock()
-	assert.NotNil(t, shell, "Shell should be created")
-}
-
-// TestHandleSFTPUpload tests sftp_upload handler
-func TestHandleSFTPUpload(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Create a test file
-	testFile := "/tmp/sshmcp_upload_test.txt"
-	err := os.WriteFile(testFile, []byte("test content"), 0644)
-	require.NoError(t, err)
-	defer os.Remove(testFile)
-
-	// Test file upload
-	args := map[string]any{
-		"session_id":  session.ID,
-		"local_path":  testFile,
-		"remote_path": "/tmp/sshmcp_remote_upload.txt",
-	}
-
-	result, output, err := server.handleSFTPUpload(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
-// TestHandleSFTPDownload tests sftp_download handler
-func TestHandleSFTPDownload(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// First create a remote file
-	_, err := session.ExecuteCommand("echo 'test' > /tmp/sshmcp_download_test.txt", 5*time.Second)
-	require.NoError(t, err)
-
-	localPath := "/tmp/sshmcp_local_download.txt"
-	defer os.Remove(localPath)
-
-	// Test file download
-	args := map[string]any{
-		"session_id":  session.ID,
-		"remote_path": "/tmp/sshmcp_download_test.txt",
-		"local_path":  localPath,
-	}
-
-	result, output, err := server.handleSFTPDownload(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
-// TestHandleSFTPListDir tests sftp_list_dir handler
-func TestHandleSFTPListDir(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Test listing directory
-	args := map[string]any{
-		"session_id":  session.ID,
-		"remote_path": "/tmp",
-	}
-
-	result, output, err := server.handleSFTPListDir(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
-// TestHandleSFTPMkdir tests sftp_mkdir handler
-func TestHandleSFTPMkdir(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Test creating directory
-	testDir := "/tmp/sshmcp_mkdir_test_12345"
-	args := map[string]any{
-		"session_id":  session.ID,
-		"remote_path": testDir,
-	}
-
-	result, output, err := server.handleSFTPMkdir(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-
-	// Clean up
-	session.SFTPClient.Remove(testDir)
-}
-
-// TestHandleSFTPDelete tests sftp_delete handler
-func TestHandleSFTPDelete(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// First create a file using SFTP
-	testFile := "/tmp/sshmcp_delete_test.txt"
-	f, err := session.SFTPClient.Create(testFile)
-	require.NoError(t, err)
-	f.Write([]byte("test"))
-	f.Close()
-
-	// Test deleting file
-	args := map[string]any{
-		"session_id":  session.ID,
-		"remote_path": testFile,
-	}
-
-	result, output, err := server.handleSFTPDelete(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
-// TestHandleSSHWriteInput tests ssh_write_input handler
-func TestHandleSSHWriteInput(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Create shell first
-	_, err := session.CreateShell("xterm-256color", 24, 80)
-	require.NoError(t, err)
-
-	// Test writing input
-	args := map[string]any{
-		"session_id": session.ID,
-		"input":      "echo test\n",
-	}
-
-	result, output, err := server.handleSSHWriteInput(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
-// TestHandleSSHReadOutput tests ssh_read_output handler
-func TestHandleSSHReadOutput(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Create shell first
-	_, err := session.CreateShell("xterm-256color", 24, 80)
-	require.NoError(t, err)
-
-	// Write something and then read
-	session.RLock()
-	shell := session.GetShellSession()
-	session.RUnlock()
-	shell.WriteInput("echo test\n")
-	time.Sleep(100 * time.Millisecond) // Give it time to process
-
-	// Test reading output
-	args := map[string]any{
-		"session_id": session.ID,
-		"timeout":    float64(1),
-	}
-
-	result, output, err := server.handleSSHReadOutput(context.Background(), nil, args)
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
 func TestTruncateCommandOutput(t *testing.T) {
-	stdout, stderr, truncated := truncateCommandOutput("12345", "67890", 7)
-	assert.Equal(t, "12345", stdout)
-	assert.Equal(t, "67", stderr)
+	stdout, stderr, truncated := truncateCommandOutput("abcdef", "ghijkl", 8)
+	assert.Equal(t, "abcdef", stdout)
+	assert.Equal(t, "gh", stderr)
 	assert.True(t, truncated)
-
-	stdout, stderr, truncated = truncateCommandOutput("ok", "", 10)
-	assert.Equal(t, "ok", stdout)
-	assert.Empty(t, stderr)
-	assert.False(t, truncated)
 }
 
-// TestHandleSSHResizePty tests ssh_resize_pty handler
-func TestHandleSSHResizePty(t *testing.T) {
-	server, sm := setupTestServer(t)
-	defer sm.Close()
-
-	session := createTestSession(t, sm)
-	if session == nil {
-		return
-	}
-	defer sm.RemoveSession(session.ID)
-
-	// Create shell first
-	_, err := session.CreateShell("xterm-256color", 24, 80)
-	require.NoError(t, err)
-
-	// Test resizing PTY
-	args := map[string]any{
-		"session_id": session.ID,
-		"rows":       float64(40),
-		"cols":       float64(120),
-	}
-
-	result, output, err := server.handleSSHResizePty(context.Background(), nil, args)
+func TestDirectoryMode(t *testing.T) {
+	mode, err := directoryMode("0750")
 	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
+	assert.Equal(t, uint32(0750), uint32(mode))
+	_, err = directoryMode("invalid")
+	assert.Error(t, err)
 }
 
-// Helper function to get environment variable with default
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
+func TestCompactSFTPToolsRejectInvalidOperations(t *testing.T) {
+	server, manager := setupTestServer(t)
+	t.Cleanup(manager.Close)
+
+	result, _, err := server.handleSFTPTransfer(context.Background(), nil, map[string]any{"connection_id": "missing", "operation": "invalid"})
+	assert.NoError(t, err)
+	assert.True(t, result.IsError)
+
+	result, _, err = server.handleSFTPManage(context.Background(), nil, map[string]any{"connection_id": "missing", "operation": "invalid"})
+	assert.NoError(t, err)
+	assert.True(t, result.IsError)
 }

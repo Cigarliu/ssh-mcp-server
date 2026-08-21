@@ -33,7 +33,6 @@ func TestNewServer(t *testing.T) {
 	assert.NotNil(t, server.sessionManager)
 	assert.NotNil(t, server.hostManager)
 	assert.NotNil(t, server.logger)
-	assert.Equal(t, ToolProfileFiles, server.profile)
 }
 
 // TestServer_RegisterTools tests that tools are registered
@@ -57,29 +56,6 @@ func TestServer_RegisterTools(t *testing.T) {
 
 	// 验证服务器已创建
 	assert.NotNil(t, server.GetMCPServer())
-}
-
-func TestParseToolProfile(t *testing.T) {
-	for _, tt := range []struct {
-		input string
-		want  ToolProfile
-		err   bool
-	}{
-		{input: "", want: ToolProfileFiles},
-		{input: "core", want: ToolProfileCore},
-		{input: "files", want: ToolProfileFiles},
-		{input: "basic", want: ToolProfileFiles},
-		{input: " ADVANCED ", want: ToolProfileAdvanced},
-		{input: "unknown", err: true},
-	} {
-		got, err := parseToolProfile(tt.input)
-		if tt.err {
-			assert.Error(t, err)
-			continue
-		}
-		assert.NoError(t, err)
-		assert.Equal(t, tt.want, got)
-	}
 }
 
 // TestServer_Start tests starting the server
@@ -128,99 +104,6 @@ func TestServer_Start(t *testing.T) {
 	case <-time.After(1 * testSecond):
 		// 服务器已关闭
 	}
-}
-
-// TestHandleSSHConnect tests ssh_connect handler
-func TestHandleSSHConnect(t *testing.T) {
-	logger := setupTestLogger()
-	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
-		MaxSessions:     10,
-		SessionTimeout:  5 * testMinute,
-		IdleTimeout:     2 * testMinute,
-		CleanupInterval: 10 * testSecond,
-		Logger:          logger,
-	})
-
-	defer sessionManager.Close()
-
-	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
-
-	server, err := NewServer(sessionManager, hostManager, logger)
-	require.NoError(t, err)
-
-	// 测试无效的连接
-	args := map[string]any{
-		"host":      "invalid-host",
-		"port":      float64(22),
-		"username":  "testuser",
-		"auth_type": "password",
-		"password":  "testpass",
-	}
-
-	result, output, err := server.handleSSHConnect(context.Background(), nil, args)
-	// 应该返回错误结果
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-}
-
-// TestHandleSSHDisconnect tests ssh_disconnect handler
-func TestHandleSSHDisconnect(t *testing.T) {
-	logger := setupTestLogger()
-	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
-		MaxSessions:     10,
-		SessionTimeout:  5 * testMinute,
-		IdleTimeout:     2 * testMinute,
-		CleanupInterval: 10 * testSecond,
-		Logger:          logger,
-	})
-
-	defer sessionManager.Close()
-
-	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
-
-	server, err := NewServer(sessionManager, hostManager, logger)
-	require.NoError(t, err)
-
-	// 测试删除不存在的会话
-	args := map[string]any{
-		"session_id": "non-existent-id",
-	}
-
-	result, output, err := server.handleSSHDisconnect(context.Background(), nil, args)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-}
-
-// TestHandleSSHListSessions tests ssh_list_sessions handler
-func TestHandleSSHListSessions(t *testing.T) {
-	logger := setupTestLogger()
-	sessionManager := sshmcp.NewSessionManager(sshmcp.ManagerConfig{
-		MaxSessions:     10,
-		SessionTimeout:  5 * testMinute,
-		IdleTimeout:     2 * testMinute,
-		CleanupInterval: 10 * testSecond,
-		Logger:          logger,
-	})
-
-	defer sessionManager.Close()
-
-	hostManager := sshmcp.NewHostManager(map[string]sshmcp.HostConfig{}, "", logger)
-
-	server, err := NewServer(sessionManager, hostManager, logger)
-	require.NoError(t, err)
-
-	// 列出空的会话列表
-	result, output, err := server.handleSSHListSessions(context.Background(), nil, map[string]any{})
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Nil(t, output)
-	assert.NotNil(t, result.Content)
-
-	// 验证内容包含 "Total sessions: 0"
-	// Content is an interface, we can't directly access Text field
-	// Just verify that content exists
-	assert.Len(t, result.Content, 1)
 }
 
 // TestTextContent helper tests

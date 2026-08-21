@@ -24,9 +24,6 @@ func TestLoadConfigWithPathGeneratesDefaultInHome(t *testing.T) {
 	if _, err := os.Stat(expectedPath); err != nil {
 		t.Fatalf("generated config was not written: %v", err)
 	}
-	if cfg.Tools.Profile != "files" {
-		t.Fatalf("tool profile = %q, want files", cfg.Tools.Profile)
-	}
 	if cfg.Logging.Output != "stderr" {
 		t.Fatalf("logging output = %q, want stderr", cfg.Logging.Output)
 	}
@@ -57,25 +54,20 @@ func TestLoadConfigWithPathGeneratesExplicitMissingConfig(t *testing.T) {
 
 func TestLoadConfigWithPathKeepsExistingConfig(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	content := []byte(`tools:
-  profile: core
-logging:
+	content := []byte(`logging:
   output: stderr
 `)
 	if err := os.WriteFile(configPath, content, 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
-	cfg, usedPath, err := LoadConfigWithPath(configPath)
+	_, usedPath, err := LoadConfigWithPath(configPath)
 	if err != nil {
 		t.Fatalf("LoadConfigWithPath failed: %v", err)
 	}
 
 	if usedPath != configPath {
 		t.Fatalf("used path = %q, want %q", usedPath, configPath)
-	}
-	if cfg.Tools.Profile != "core" {
-		t.Fatalf("tool profile = %q, want core", cfg.Tools.Profile)
 	}
 	after, err := os.ReadFile(configPath)
 	if err != nil {
